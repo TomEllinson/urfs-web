@@ -1,0 +1,4 @@
+# Existing nested webapp projects with their own git history.
+# Untouched by this v0.0.1 single-file parity build.
+current/
+redesign/

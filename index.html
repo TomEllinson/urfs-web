@@ -1,0 +1,2225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<title>URFS</title>
+<!--
+  URFS — web parity build
+  Single-file workaround for iOS testers (no Mac, no native iOS build).
+  Mirrors the Android app's visual treatment + interaction model. Data
+  persists in IndexedDB; one URL per device. Ship-as-single-file so
+  GitHub Pages just serves a static asset.
+  ---
+  Version: 0.0.1 (2026-06-04)
+  Source of truth for rules: ../android/app/src/main/assets/rulebook.md
+-->
+<style>
+  /* ── Theme — mirrors android/ui/theme/Color.kt ─────────────────── */
+  :root {
+    --surface-0: #0b0f14;
+    --surface-1: #11171f;
+    --surface-2: #161e29;
+    --surface-3: #1d2734;
+    --on-surface: #d6e3f0;
+    --on-surface-muted: #8da0b6;
+    --on-surface-dim: #5a6c80;
+    --cyan: #4dd0e1;
+    --cyan-dim: #2da4b8;
+    --amber: #ffb347;
+    --warn-amber: #ffb74d;
+    --orange: #ff8a5b;
+    --green: #4ece71;
+    --red: #ef5350;
+    --bevel: 4px;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100vh;
+    background: var(--surface-0); color: var(--on-surface);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+      "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.4;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+  }
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  button, input, select, textarea {
+    font: inherit; color: inherit;
+  }
+  button { cursor: pointer; }
+  a { color: var(--cyan); text-decoration: none; }
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  #app {
+    display: flex; flex-direction: column;
+    min-height: 100vh; min-height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+  }
+  .titlebar {
+    padding: 14px 16px 8px;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .titlebar .brand {
+    font-size: 22px; font-weight: 800; color: var(--cyan);
+    letter-spacing: 0.02em;
+  }
+  .titlebar .suffix {
+    font-size: 12px; color: var(--on-surface-muted); font-weight: 700;
+    margin-left: auto;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .titlebar .suffix.amber { color: var(--amber); }
+
+  main {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    padding: 0 16px 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Bottom nav ─────────────────────────────────────────────────── */
+  .botnav {
+    position: sticky; bottom: 0;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    background: var(--surface-1);
+    border-top: 1px solid var(--surface-3);
+    padding-bottom: env(safe-area-inset-bottom);
+    z-index: 10;
+  }
+  .botnav button {
+    background: transparent; border: none; color: var(--on-surface-muted);
+    padding: 8px 4px; display: flex; flex-direction: column;
+    align-items: center; gap: 2px;
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .botnav button .ic {
+    font-size: 18px; line-height: 1;
+  }
+  .botnav button[aria-current="page"] {
+    color: var(--cyan);
+  }
+
+  /* ── Generic UI primitives ──────────────────────────────────────── */
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--surface-3);
+    border-radius: var(--bevel);
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .card.tight { padding: 10px; }
+  .card.row { display: flex; gap: 12px; align-items: flex-start; }
+  .chip {
+    display: inline-flex; align-items: center;
+    padding: 2px 6px; border-radius: 3px;
+    background: rgba(77, 208, 225, 0.15);
+    color: var(--cyan);
+    font-size: 11px; font-weight: 700;
+    border: 1px solid rgba(77, 208, 225, 0.35);
+    letter-spacing: 0.04em;
+  }
+  .chip.amber { background: rgba(255, 179, 71, 0.15); color: var(--amber); border-color: rgba(255, 179, 71, 0.35); }
+  .chip.orange { background: rgba(255, 138, 91, 0.15); color: var(--orange); border-color: rgba(255, 138, 91, 0.35); }
+  .chip.red { background: rgba(239, 83, 80, 0.15); color: var(--red); border-color: rgba(239, 83, 80, 0.35); }
+  .chip.green { background: rgba(78, 206, 113, 0.15); color: var(--green); border-color: rgba(78, 206, 113, 0.35); }
+  .chip.muted { background: rgba(141, 160, 182, 0.12); color: var(--on-surface-muted); border-color: rgba(141, 160, 182, 0.25); }
+  .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .row-gap { display: flex; align-items: center; gap: 8px; }
+  .label-small {
+    font-size: 10px; letter-spacing: 0.08em; font-weight: 700;
+    color: var(--on-surface-muted); text-transform: uppercase;
+  }
+  .label-cyan { color: var(--cyan); }
+  .label-amber { color: var(--amber); }
+  .label-red { color: var(--red); }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  }
+  .stat-cell {
+    background: rgba(0,0,0,0.18);
+    border-radius: var(--bevel);
+    padding: 6px 8px;
+    display: flex; align-items: center; gap: 6px;
+    font-weight: 700;
+    cursor: pointer; user-select: none;
+  }
+  .stat-cell .lbl { font-size: 10px; color: var(--on-surface-muted); }
+  .stat-cell .val { font-size: 13px; }
+  .stat-cell.over .val { color: var(--red); }
+  .stat-cell.warn .val { color: var(--amber); }
+  .stat-cell.ok .val { color: var(--on-surface); }
+  .stat-cell.cyan .val { color: var(--cyan); }
+  .btn {
+    background: var(--surface-2); color: var(--cyan);
+    border: 1px solid rgba(77, 208, 225, 0.40);
+    border-radius: var(--bevel);
+    padding: 8px 14px; font-weight: 700; font-size: 12px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .btn.primary {
+    background: var(--cyan); color: #07111a; border-color: var(--cyan);
+  }
+  .btn.amber {
+    background: var(--amber); color: #1f1208; border-color: var(--amber);
+  }
+  .btn.danger {
+    background: transparent; color: var(--red); border-color: var(--red);
+  }
+  .btn.ghost {
+    background: transparent; color: var(--on-surface-muted);
+    border-color: var(--surface-3);
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.wide { width: 100%; }
+
+  /* ── Modal ──────────────────────────────────────────────────────── */
+  .modal-back {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex; align-items: flex-end; justify-content: center;
+    z-index: 100;
+    padding: 12px;
+  }
+  .modal {
+    background: var(--surface-2);
+    border-radius: 10px 10px 0 0;
+    width: 100%; max-width: 540px;
+    padding: 16px;
+    max-height: 86vh; overflow-y: auto;
+    border-top: 1px solid var(--surface-3);
+    margin-bottom: env(safe-area-inset-bottom);
+  }
+  .modal h2 {
+    margin: 0 0 6px;
+    color: var(--cyan);
+    font-size: 16px; letter-spacing: 0.04em;
+  }
+  .modal p { margin: 4px 0; color: var(--on-surface-muted); }
+  .modal .actions {
+    display: flex; gap: 8px; margin-top: 14px;
+    justify-content: flex-end;
+  }
+  .field {
+    display: flex; flex-direction: column; gap: 4px;
+    margin: 8px 0;
+  }
+  .field label { font-size: 10px; color: var(--on-surface-muted); letter-spacing: 0.06em; font-weight: 700; text-transform: uppercase; }
+  .field input, .field select, .field textarea {
+    background: var(--surface-1);
+    border: 1px solid var(--surface-3);
+    border-radius: var(--bevel);
+    padding: 8px 10px; color: var(--on-surface);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--cyan);
+  }
+
+  /* ── Schematic damage map ───────────────────────────────────────── */
+  .dmap {
+    display: flex; flex-direction: column; gap: 6px;
+    align-items: center;
+    padding: 8px 0;
+  }
+  .dmap .row {
+    display: flex; justify-content: center;
+    gap: 6px; align-items: center;
+  }
+  .dmap .col {
+    display: flex; flex-direction: column;
+    gap: 4px; align-items: center;
+  }
+  .dmap .tile {
+    width: 60px; height: 60px;
+    border-radius: var(--bevel);
+    background: rgba(78,206,113,0.16);
+    border: 1px solid rgba(78,206,113,0.55);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 4px; gap: 0;
+    font-size: 11px; color: var(--on-surface);
+    cursor: pointer;
+  }
+  .dmap .tile.big { width: 80px; height: 80px; }
+  .dmap .tile.warn { background: rgba(255,179,71,0.16); border-color: rgba(255,179,71,0.55); }
+  .dmap .tile.bad { background: rgba(239,83,80,0.18); border-color: rgba(239,83,80,0.55); }
+  .dmap .tile.dim { background: rgba(141,160,182,0.10); border-color: rgba(141,160,182,0.35); color: var(--on-surface-muted); }
+  .dmap .tile.dead { background: rgba(239,83,80,0.20); border-color: rgba(239,83,80,0.65); }
+  .dmap .tile .abbr { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
+  .dmap .tile .nm { font-size: 9px; color: var(--on-surface-muted); }
+  .dmap .tile .hp { font-weight: 700; font-size: 10px; }
+  .dmap .col-lbl { font-size: 9px; color: var(--on-surface-dim); letter-spacing: 0.08em; font-weight: 700; }
+
+  /* ── Action sheet ───────────────────────────────────────────────── */
+  .bucket {
+    background: var(--surface-2);
+    border: 1px solid rgba(77, 208, 225, 0.15);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .bucket .header {
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 800; letter-spacing: 0.08em; font-size: 13px;
+    cursor: pointer; user-select: none;
+  }
+  .bucket .header .ic { font-size: 16px; }
+  .bucket.primary .header { color: var(--cyan); }
+  .bucket.reaction .header { color: var(--orange); }
+  .bucket.incidental .header { color: var(--amber); }
+  .bucket.primary.open { border-color: rgba(77, 208, 225, 0.45); }
+  .bucket.reaction.open { border-color: rgba(255, 138, 91, 0.45); }
+  .bucket.incidental.open { border-color: rgba(255, 179, 71, 0.45); }
+  .actions-list {
+    padding: 4px 8px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .action-btn {
+    background: var(--surface-1);
+    border: 1px solid rgba(77, 208, 225, 0.20);
+    border-radius: 4px;
+    padding: 8px 10px;
+    text-align: left;
+    color: var(--on-surface);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .action-btn:disabled { opacity: 0.4; }
+  .action-btn .nm { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .action-btn .hint { font-size: 11px; color: var(--on-surface-muted); }
+  .action-btn .reason { font-size: 11px; color: var(--orange); }
+
+  /* ── List items ─────────────────────────────────────────────────── */
+  .list-card {
+    background: var(--surface-1);
+    border: 1px solid var(--surface-3);
+    border-radius: var(--bevel);
+    padding: 12px;
+    margin-bottom: 10px;
+    display: flex; gap: 12px; align-items: flex-start;
+    cursor: pointer;
+  }
+  .list-card .thumb {
+    width: 60px; height: 60px;
+    background: var(--surface-2);
+    border-radius: var(--bevel);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: var(--on-surface-dim);
+    overflow: hidden;
+  }
+  .list-card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .list-card h3 {
+    margin: 0; font-size: 16px; color: var(--cyan); font-weight: 700;
+    line-height: 1.15;
+  }
+  .list-card .meta {
+    font-size: 11px; color: var(--on-surface-muted);
+    margin-top: 4px;
+  }
+
+  .fab {
+    position: fixed; right: 16px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--cyan); color: #07111a;
+    font-size: 28px; line-height: 56px; text-align: center;
+    border: none; box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    z-index: 5;
+  }
+
+  .empty {
+    text-align: center; padding: 40px 16px;
+    color: var(--on-surface-muted);
+  }
+  .empty h2 { margin: 4px 0; color: var(--on-surface); font-size: 18px; }
+  .empty p { margin: 4px 0; }
+
+  /* Skip header on small screens */
+  @media (max-width: 320px) {
+    .stat-grid { grid-template-columns: repeat(4, 1fr); }
+    .stat-cell { padding: 4px 6px; font-size: 12px; }
+  }
+
+  /* ── Toast ──────────────────────────────────────────────────────── */
+  .toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(80px + env(safe-area-inset-bottom));
+    background: var(--surface-2); color: var(--on-surface);
+    border: 1px solid var(--surface-3);
+    border-radius: 6px;
+    padding: 10px 14px; font-size: 13px;
+    max-width: 86vw;
+    z-index: 200;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="titlebar">
+    <span class="brand" id="title-brand">GARAGE</span>
+    <span class="suffix" id="title-suffix">// MECH_DB</span>
+  </div>
+  <main id="screen"></main>
+  <nav class="botnav" id="botnav"></nav>
+</div>
+<div id="modal-host"></div>
+<div id="toast-host"></div>
+<script>
+// ────────────────────────────────────────────────────────────────────
+// URFS Web — single-file build.
+//
+// Architecture: imperative state object + render() function that
+// rewrites the screen on every action. State is persisted to
+// IndexedDB on every mutation. No build step, no framework.
+//
+// Mirrors the Android app's data model 1:1 — same RobotEntity /
+// ComponentEntity / ModuleInstance / EquipmentSocket / BattleState
+// shapes — so JSON exported here can be hand-fed back into the
+// Android app once Tom has time to wire the import path.
+// ────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────
+// Module catalog. Mirrors android/app/src/main/assets/packs/urfs-core/
+// modules.json (a subset of the full pack — the most important rule-
+// bearing modules for v0.0.1). Tom can paste the full pack into the
+// MODULES constant any time; the loader reads it as a flat list.
+// ────────────────────────────────────────────────────────────────────
+const MODULES = [
+  { id: "stable_reactor",      name: "Stable Reactor",       weight: 2, power: 25, definitionLimit: ["CORE","UTILITY"], description: "+25 Power. Core/Utility only." },
+  { id: "aux_reactor",         name: "Aux Reactor",          weight: 1, power: 10, definitionLimit: [], description: "+10 Power. Auxiliary support reactor." },
+  { id: "volatile_reactor",    name: "Volatile Reactor",     weight: 1, power: 30, definitionLimit: ["CORE","UTILITY"], description: "+30 Power. Explodes if its component is destroyed.", explosiveDamage: 1 },
+  { id: "fuel_powered_generator", name: "Fuel-powered Generator", weight: 1, power: 10, definitionLimit: [], description: "+10 Power, burns fuel each round.", fuelConsumption: 1 },
+  { id: "fuel_tank",           name: "Fuel Tank",            weight: 1, power: 0,  definitionLimit: [], description: "+10 Fuel Capacity.", fuelCapacity: 10, toggleable: true },
+  { id: "capacitor_bank",      name: "Capacitor Bank",       weight: 1, power: 0,  definitionLimit: [], description: "Adds 2 Capacitors. Each remaining +1 Shutdown die.", emergencyShutdownBonus: 1, maxCopies: -1, stackable: true },
+  { id: "shield_gen",          name: "Shield Generator",     weight: 2, power: -10, definitionLimit: ["CORE","UTILITY"], description: "+Silhouette shields. Core/Utility only.", shieldsMultiplier: 1, toggleable: true },
+  { id: "standard_cockpit",    name: "Standard Cockpit",     weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "Pilot seat. Weight 1, Power -2.", cockpitSlots: 1 },
+  { id: "open_air_cockpit",    name: "Open-Air Cockpit",     weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+3 dice on Maneuver / Ranged.", cockpitSlots: 1 },
+  { id: "motion_cockpit",      name: "Motion-Control Cockpit", weight: 2, power: -5, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+3 dice on Physical-stat checks.", cockpitSlots: 1 },
+  { id: "ai_core",             name: "A.I. Core",            weight: 0, power: -10, definitionLimit: ["CORE","HEAD","UTILITY"], description: "AI pilot. Toggleable; off ≠ shutdown.", cockpitSlots: 1, toggleable: true },
+  { id: "armor",               name: "Armor",                weight: 1, power: 0,  definitionLimit: [], description: "+1× Sil component armor.", armorMultiplier: 1, stackable: true },
+  { id: "heavy_armor",         name: "Heavy Armor",          weight: 3, power: 0,  definitionLimit: [], description: "+3× Sil component armor.", armorMultiplier: 3, stackable: true },
+  { id: "composite_armor",     name: "Composite Armor",      weight: 0, power: 0,  definitionLimit: [], description: "+1× Sil component armor, weightless.", armorMultiplier: 1, stackable: true },
+  { id: "armor_coating",       name: "Armor Coating",        weight: 1, power: 0,  definitionLimit: [], description: "Immune to Energy at full armor.", requires: ["armor","heavy_armor","composite_armor"], maxPerComponent: 1 },
+  { id: "manipulator",         name: "Manipulator",          weight: 1, power: -2, definitionLimit: ["ARM"], description: "Hand. Required for weapons.", maxPerComponent: 1 },
+  { id: "internal_weapon_socket", name: "Internal Weapon Socket", weight: 0, power: -2, definitionLimit: [], description: "Mounts a Mount-Point ranged weapon, one chosen facing.", maxCopies: -1 },
+  { id: "fixed_external_socket",  name: "Fixed External Equipment Socket", weight: 0, power: 0, definitionLimit: [], description: "Mounts a Mount-Point weapon, one chosen facing.", maxCopies: -1 },
+  { id: "swivel_weapon_socket",   name: "Swivel Weapon Socket", weight: 1, power: -1, definitionLimit: [], description: "Mounts a Mount-Point weapon; fires into base + 2 adjacent arcs.", maxCopies: -1 },
+  { id: "holster_point",       name: "Holster Point",        weight: 0, power: 0, definitionLimit: [], description: "Stows a held weapon for Draw.", maxCopies: -1 },
+  { id: "tether_socket",       name: "Tether Socket",        weight: 0, power: -1, definitionLimit: [], description: "Mounts Tethered equipment.", maxCopies: -1 },
+  { id: "booster",             name: "Booster",              weight: 1, power: 0, definitionLimit: [], description: "+1 Boost Power.", boost: 1, stackable: true },
+  { id: "high_output_booster", name: "High Output Booster",  weight: 2, power: -2, definitionLimit: [], description: "+3 Boost Power.", boost: 3 },
+  { id: "wings",               name: "Wing/Aerodynamic Package", weight: 0, power: 0, definitionLimit: [], description: "+1 Glide.", glide: 1, stackable: true },
+  { id: "wheels",              name: "Wheels",               weight: 1, power: -2, definitionLimit: ["LEG"], description: "Ground speed wheels. Each wheel = ½×Sil SU.", groundSpeedMultiplier: 0.5, maxPerComponent: 2 },
+  { id: "hover_system",        name: "Hover System",         weight: 1, power: -5, definitionLimit: [], description: "Sets altitude floor.", stackable: true },
+  { id: "lift_enhancement",    name: "Lift Enhancement",     weight: 1, power: -1, definitionLimit: [], description: "+2 Max Load.", stackable: true },
+  { id: "horizontal_framing",  name: "Horizontal Framing",   weight: 0, power: 0, definitionLimit: ["CORE"], description: "Sil halved (ceil) for LoF + cover. Quadruped/centaur chassis." },
+  { id: "leg_attack_system",   name: "Leg/Head Attack System", weight: 1, power: 0, definitionLimit: ["LEG","HEAD"], description: "Lets this component melee like an arm." },
+  { id: "inertia_driver",      name: "Inertia Driver",       weight: 1, power: 0, definitionLimit: ["ARM"], description: "Pre-melee fuel spend → bonus dice." },
+];
+const MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
+
+const TALENTS = [
+  { name: "Sharpshooter", cost: 3, slots: 1, description: "On a single-target Ranged Salvo, may burn the free Incidental for +3 dice. Inertia 0 only." },
+  { name: "Deadeye",      cost: 4, slots: 1, description: "After a single-target Ranged attack, add a Pilot Strain token to make it Unblockable." },
+  { name: "Tank",         cost: 4, slots: 1, description: "+1 Mental dedicated to System-Strain reduction." },
+  { name: "Coordinated",  cost: 3, slots: 1, description: "When in the same robot as another Coordinated pilot, +1 die on all checks." },
+  { name: "Shield Rider", cost: 3, slots: 1, description: "While Shields > 0, +2 Pilot Strain Threshold." },
+  { name: "Fast Fingers", cost: 2, slots: 1, description: "+1 free Toggle Incidental per round." },
+  { name: "Brawler",      cost: 3, slots: 1, description: "+1 die on Melee attacks." },
+  { name: "Quick Troubleshooter", cost: 3, slots: 1, description: "On a Power-Loss Emergency Shutdown trigger, may pick which module shut down to retoggle on." },
+  { name: "Neural Link",  cost: 7, slots: 2, description: "Physical replaces Mental for Pilot Strain damage AND a Fortitude check on Frame Component destruction." },
+  { name: "Quick Troublemaker", cost: 3, slots: 1, description: "Once per game, force an opposing robot's Emergency Shutdown check at +2 difficulty." },
+  { name: "Martial Artist", cost: 4, slots: 1, description: "Unarmed melee = 1d6 + ½ Strength. May Parry without a melee weapon." },
+];
+
+// ────────────────────────────────────────────────────────────────────
+// Battle action rules — quoted from rulebook.md. Mirror of
+// android/ui/battle/redesign/ActionResolveDialog.kt.
+// ────────────────────────────────────────────────────────────────────
+const ACTIONS = {
+  PASS:               { label: "Pass",              bucket: "primary", brief: "Pass priority to the opponent. Clears Pilot Strain. Reboots Shutdown.", cost: "—  (clears P Strain)", rules: "(L220) Does not cost a token. Pass Priority to the opponent. Also reboots a Shutdown Robot. Clears all Pilot Strain tokens on the passing Robot (does NOT clear System Strain)." },
+  CHARGE:             { label: "Charge",            bucket: "primary", brief: "Move up to Ground Speed (or Boost), then make a Melee Attack at end-of-move.", cost: "+1 P Strain  +1 S Strain", rules: "(L224) Move up to Ground Speed in a non-reverse direction — OR — Boost any number of Scale Units (up to maximum), then make a Melee Attack at the end of movement." },
+  STRAFE:             { label: "Strafe",            bucket: "primary", brief: "Move up to Ground Speed (or Boost) + Ranged Attack before or after.", cost: "+1 P Strain  +1 S Strain", rules: "(L226) Move up to Ground Speed in a non-reverse direction — OR — Boost any number of Scale Units, then make a Ranged Attack. May also make the Ranged Attack before moving." },
+  SALVO:              { label: "Salvo",             bucket: "primary", brief: "Fire each ranged weapon at any target. One token per target; if targets > Mental, roll a Mental check.", cost: "+1 S Strain  +1 P Strain per target", rules: "(L228) Make Ranged Attacks with up to your full complement of ranged weapons. Costs one token per target. If the number of targets exceeds your Mental stat, make a Mental check against the number of targets. Fail = subtract the difference from each attack's dice pool." },
+  MELEE_ASSAULT:      { label: "Melee Assault",     bucket: "primary", brief: "Attack with every melee weapon. One token per target.", cost: "+1 S Strain  +1 P Strain per target", rules: "(L236) Make Melee Attacks with up to your full complement of melee weapons. Costs one token per target. You choose the order of attacks. Each attack must be reacted to individually." },
+  DOUBLE_INCIDENTAL:  { label: "Double Incidental", bucket: "primary", brief: "Take 2 Incidentals plus the free Priority-Action one (3 total).", cost: "+1 P Strain  +1 S Strain", rules: "(L240) Take two Incidental actions, plus the free Incidental from the Priority Action (three total)." },
+  BOOST:              { label: "Boost",             bucket: "primary", brief: "Travel up to max Boost distance. Costs fuel. Fortitude check if off-Vector while flying.", cost: "+1 P Strain  +1 S Strain", rules: "(L238) Travel up to your maximum Boost distance. If Flying and changing direction off-Vector, make a Fortitude Check per the flying rules." },
+  MOVE:               { label: "Move",              bucket: "primary", brief: "Run: move up to full Ground Speed (½ in reverse). Optional Physical check for extra SU.", cost: "+1 P Strain  +1 S Strain", rules: "(L222) Move up to full Ground Speed in any direction. Half speed if moving in reverse (a direction that could draw a Line of Fire to the Robot's Rear facing). You may make a Physical check and move 2x the number of hits in additional Scale Units." },
+  DODGE:              { label: "Dodge",             bucket: "reaction", brief: "Physical check. Each hit reduces opponent hits by 1.", cost: "+1 P Strain  +1 S Strain", rules: "(ch.5 Reactions) Roll a Physical check. Each hit subtracts 1 hit from the incoming attack." },
+  BOOST_DODGE:        { label: "Boost Dodge",       bucket: "reaction", brief: "Physical check + Boost equal to hits. Costs fuel.", cost: "+1 P Strain  +1 S Strain", rules: "(L248) Make a Physical check and Boost up to the number of hits in any direction. Increase the required hits of the opponent's attack by your hits. Costs fuel as normal." },
+  BLOCK:              { label: "Block",             bucket: "reaction", brief: "Redirect the incoming attack to a Component of your choice.", cost: "+1 P Strain  +1 S Strain", rules: "(L250) Redirect the incoming attack to a Component of your choice. If that Component is destroyed, the attacker picks the next Component for overflow." },
+  PARRY:              { label: "Parry",             bucket: "reaction", brief: "Roll a melee attack vs the incoming attack. Hits raise their threshold.", cost: "+1 P Strain  +1 S Strain", rules: "(L252) Roll a melee attack using your own melee weapon. Your hits increase the number the opponent needs to succeed. If no damage is dealt from their attack, you gain Priority." },
+  HIP_SHOT:           { label: "Hip Shot",          bucket: "reaction", brief: "Make a single Ranged Attack after the current Priority Action resolves.", cost: "+1 P Strain  +1 S Strain", rules: "(L256) Make a single Ranged Attack after the current Priority Action resolves." },
+  QUICK_STRIKE:       { label: "Quick Strike",      bucket: "reaction", brief: "Make a single Melee Attack — resolves after the attacker's melee.", cost: "+1 P Strain  +1 S Strain", rules: "(L254) Make a single Melee Attack. If against a Robot whose Priority Action includes a melee attack, Quick Strike resolves after theirs." },
+  QUICK_MOVE:         { label: "Quick Move",        bucket: "reaction", brief: "Move up to ½ Ground Speed (grounded only). May increase Inertia.", cost: "+1 P Strain  +1 S Strain", rules: "(L246) Move up to half Ground Speed. Cannot perform at Altitude > 0. May increase Inertia if you move far enough." },
+  PIVOT:              { label: "Pivot",             bucket: "incidental", brief: "Change facing by up to 90° (180° if Flying off-Vector lock).", cost: "Free", rules: "(L276) Change Facing by up to 90 degrees. When Flying, may turn up to 180 degrees if Facing is not locked to Vector." },
+  STEP:               { label: "Step",              bucket: "incidental", brief: "Move up to ½ Silhouette in SU. Grounded only.", cost: "Free", rules: "(L270) Move up to half Silhouette in Scale Units. Cannot Step if Altitude or Inertia > 0." },
+  CROUCH:             { label: "Crouch",            bucket: "incidental", brief: "Half Sil vs Ranged. +2 dice on Grabbed-weapon Ranged. Ends on any move.", cost: "Free", rules: "(L264) Only for Robots with legs, at Altitude 0 and Inertia 0. Silhouette counts as half for enemy Ranged Attacks. Crouched Robots get +2 dice on Ranged Attack checks with Grabbed weapons. Any movement ends the Crouch." },
+  HEAT_VENT:          { label: "Heat Vent",         bucket: "incidental", brief: "Mental check. Remove System Strain = hits. Can be a Reaction.", cost: "Free", rules: "(L266) Make a Mental check. Remove System Strain from this Robot equal to the number of hits." },
+  TOGGLE:             { label: "Toggle",            bucket: "incidental", brief: "Turn a Component / Module on or off, or activate a Toggle.", cost: "Free", rules: "(L268) Turn a Component or Module on or off, or activate anything requiring a Toggle. This includes spending Capacitors for Shield recovery or System Strain clearing." },
+  GRAB:               { label: "Grab",              bucket: "incidental", brief: "Pick up adjacent equipment / add a Grab. Requires a Manipulator.", cost: "Free", rules: "(L272) Change an equipment location or add Grabs. Requires a Manipulator." },
+  DRAW:               { label: "Draw",              bucket: "incidental", brief: "Draw a stowed weapon. Can combine with Drop.", cost: "Free", rules: "(L272) Change an equipment location or add Grabs. Requires a Manipulator." },
+  DROP:               { label: "Drop",              bucket: "incidental", brief: "Drop a held object/weapon adjacent to the robot.", cost: "Free", rules: "(L274) Drop a held object or weapon adjacent to the Robot. Place a token on the map." },
+  DECELERATE:         { label: "Decelerate",        bucket: "incidental", brief: "Spend fuel to reduce Inertia.", cost: "Free + fuel", rules: "(Ch.9 flight rules) Spend fuel to reduce Inertia. See the flight section for fuel cost." },
+  STAND_UP:           { label: "Stand Up",          bucket: "incidental", brief: "When DOWN: stand back up.", cost: "Free", rules: "Stand back up from DOWN. Free incidental." },
+  BREAK_FREE:         { label: "Break Free",        bucket: "incidental", brief: "When GRAPPLED: attempt to break free.", cost: "Free", rules: "Attempt to break free of an opposing Robot's grapple." },
+  SHIELD_RECOVERY:    { label: "Shield Recovery",   bucket: "incidental", brief: "Spend 1 Capacitor → +10 Shields.", cost: "1 Capacitor", rules: "(L417) Shield Recovery: Toggle to permanently spend 1 Capacitor and recover 10 Shield points." },
+  STRAIN_CLEAR:       { label: "Strain Clear",      bucket: "incidental", brief: "Spend 1 Capacitor → −1 System Strain.", cost: "1 Capacitor", rules: "(L420) Spend 1 Capacitor (permanently) to remove 1 System Strain." },
+};
+
+// ────────────────────────────────────────────────────────────────────
+// IndexedDB layer. Three stores: robots, pilots, equipment, forces,
+// battles, settings. Each value is a plain JS object — we treat
+// stores as document collections (no JOINs) for sanity.
+// ────────────────────────────────────────────────────────────────────
+const DB_NAME = "urfs-web";
+const DB_VERSION = 1;
+const STORES = ["robots", "pilots", "equipment", "forces", "battles", "settings"];
+
+let _db = null;
+function openDb() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onerror = () => reject(req.error);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      for (const s of STORES) {
+        if (!db.objectStoreNames.contains(s)) {
+          db.createObjectStore(s, { keyPath: "id", autoIncrement: true });
+        }
+      }
+    };
+    req.onsuccess = () => { _db = req.result; resolve(_db); };
+  });
+}
+async function dbPut(store, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    const req = tx.objectStore(store).put(value);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function dbGetAll(store) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function dbGet(store, id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function dbDelete(store, id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    const req = tx.objectStore(store).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// State + render. Reactive enough for the scale of this app — we
+// re-render the active screen on every action. Modals stack on top.
+// ────────────────────────────────────────────────────────────────────
+const state = {
+  tab: "garage", // garage / equip / pilots / forces / battle
+  robots: [],
+  pilots: [],
+  equipment: [],
+  forces: [],
+  battles: [],
+  activeBattle: null, // BattleState
+  activeRobotId: null, // when drilled into per-robot battle screen
+  modal: null, // { kind, data }
+};
+
+function setState(patch) {
+  Object.assign(state, patch);
+  render();
+}
+function pushModal(kind, data) {
+  state.modal = { kind, data };
+  render();
+}
+function closeModal() { state.modal = null; render(); }
+
+function showToast(msg, ms = 2200) {
+  const host = document.getElementById("toast-host");
+  host.innerHTML = `<div class="toast">${escapeHtml(msg)}</div>`;
+  setTimeout(() => { if (host.innerHTML.includes(escapeHtml(msg))) host.innerHTML = ""; }, ms);
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Domain helpers — derive stats from a robot the same way the
+// Android CalculationEngine does. Limited to v0.0.1 essentials.
+// ────────────────────────────────────────────────────────────────────
+function robotInstalledModuleIds(robot) {
+  const ids = [];
+  for (const c of robot.components || []) {
+    for (const m of c.modules || []) ids.push(m.moduleId);
+  }
+  return ids;
+}
+function calcRobotBP(robot) {
+  // Frame BP = silhouette × (frameStrength + frameDurability + frameMaterial)
+  // matches alpha.348 calculateTotalBP shape (simplified).
+  const sil = robot.silhouette || 1;
+  const fs = robot.frameStrength || 1;
+  const fd = robot.frameDurability || 1;
+  const fm = robot.frameMaterial || 1;
+  const cc = (robot.components || []).length || 1;
+  return (fs + fd + fm) * sil + cc;
+}
+function calcShieldsMax(robot) {
+  const ids = robotInstalledModuleIds(robot);
+  const gens = ids.filter(id => MODULES_BY_ID[id]?.shieldsMultiplier > 0).length;
+  return gens * (robot.silhouette || 1);
+}
+function calcCapacitorPool(robot) {
+  const ids = robotInstalledModuleIds(robot);
+  const banks = ids.filter(id => MODULES_BY_ID[id]?.emergencyShutdownBonus > 0).length;
+  return banks * 2;
+}
+function calcStrainThreshold(robot) {
+  const sil = robot.silhouette || 1;
+  const ids = robotInstalledModuleIds(robot);
+  const coproc = ids.filter(id => MODULES_BY_ID[id]?.actionTokenBonus > 0).length;
+  return Math.ceil(sil / 2) + coproc;
+}
+function calcTotalBoost(robot) {
+  return robotInstalledModuleIds(robot)
+    .map(id => MODULES_BY_ID[id]?.boost || 0)
+    .reduce((a,b) => a+b, 0);
+}
+function calcTotalWeight(robot) {
+  let w = 0;
+  for (const c of robot.components || []) {
+    let raw = 0;
+    for (const m of c.modules || []) raw += MODULES_BY_ID[m.moduleId]?.weight || 0;
+    w += c.isFrame ? Math.ceil(raw / 2) : raw;
+  }
+  return w;
+}
+function calcMaxLoad(robot) {
+  const fs = robot.frameStrength || 1;
+  const bottomCount = (robot.components || []).filter(c => c.facing === "BOTTOM").length;
+  const lifts = robotInstalledModuleIds(robot)
+    .filter(id => id === "lift_enhancement").length;
+  return fs * bottomCount + lifts * 2;
+}
+function calcGroundSpeed(robot) {
+  const sil = robot.silhouette || 1;
+  const legs = (robot.components || []).filter(c => c.definition === "LEG").length;
+  const wheels = (robot.components || []).flatMap(c =>
+    (c.modules || []).filter(m => m.moduleId === "wheels")
+  );
+  const wheelsBonus = wheels.reduce((acc, w) => acc + Math.ceil(sil * 0.5), 0);
+  if (legs === 0 && wheels.length === 0) return 0;
+  const totalWeight = calcTotalWeight(robot);
+  const maxLoad = calcMaxLoad(robot);
+  const moveMod = Math.ceil((maxLoad - totalWeight) / 5);
+  return legs * sil + moveMod + wheelsBonus;
+}
+function calcEffectiveSil(robot, statuses) {
+  let sil = robot.silhouette || 1;
+  const ids = robotInstalledModuleIds(robot);
+  const hf = ids.includes("horizontal_framing");
+  if (hf) sil = Math.ceil(sil / 2);
+  if (statuses && statuses.includes("CROUCHED")) sil = Math.ceil(sil / 2);
+  return sil;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Battle state factory. Mirrors BattleRobotState in BattleState.kt.
+// ────────────────────────────────────────────────────────────────────
+function buildBattleRobotState(robot, side) {
+  const ids = robotInstalledModuleIds(robot);
+  const cockpits = ids.filter(id =>
+    ["standard_cockpit","open_air_cockpit","motion_cockpit","ai_core"].includes(id)
+  ).length || 1;
+  return {
+    robotId: robot.id,
+    robotName: robot.name || "Unnamed",
+    side,
+    silhouette: robot.silhouette || 1,
+    components: (robot.components || []).map(c => {
+      let armor = 0;
+      for (const m of c.modules || []) armor += (MODULES_BY_ID[m.moduleId]?.armorMultiplier || 0) * (robot.silhouette || 1);
+      return {
+        componentId: c.tempId,
+        name: c.name || c.definition,
+        definition: c.definition,
+        facing: c.facing || "FRONT",
+        isFrame: c.isFrame !== false,
+        hpMax: armor,
+        hpCurrent: armor,
+        isDestroyed: false,
+        modules: (c.modules || []).map(m => ({
+          moduleId: m.moduleId,
+          toggledOn: true,
+        })),
+        equipment: (c.equipment || []).map((e, i) => ({
+          equipmentId: e.id ?? i,
+          name: e.name || "Equipment",
+          armorMax: e.armor || 5,
+          armorCurrent: e.armor || 5,
+          isDrawn: !!e.isDrawn,
+          isDropped: false,
+          mountPoint: !!e.mountPoint,
+        })),
+      };
+    }),
+    fuelMax: ids.filter(id => id === "fuel_tank").length * 10 + 10,
+    fuelCurrent: ids.filter(id => id === "fuel_tank").length * 10 + 10,
+    shieldsMax: calcShieldsMax(robot),
+    shieldsCurrent: calcShieldsMax(robot),
+    systemStrain: 0,
+    systemStrainThreshold: calcStrainThreshold(robot),
+    capacitorsRemaining: calcCapacitorPool(robot),
+    pilotTokens: 0,
+    pilotMental: 4,
+    statusEffects: [],
+    boostPower: calcTotalBoost(robot),
+    robotWeight: calcTotalWeight(robot),
+    groundSpeed: calcGroundSpeed(robot),
+    maxLoad: calcMaxLoad(robot),
+    altitude: 0, inertia: 0,
+    cockpitPilots: [], // populated when force deploys with pilots
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Routing / top-level render
+// ────────────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "garage",  label: "GARAGE",    icon: "🔧", suffix: "// MECH_DB" },
+  { id: "equip",   label: "EQUIPMENT", icon: "🔫", suffix: "// ARSENAL" },
+  { id: "pilots",  label: "PILOTS",    icon: "👤", suffix: "// CREW_DB" },
+  { id: "forces",  label: "FORCES",    icon: "👥", suffix: "// SQUAD_A" },
+  { id: "battle",  label: "BATTLE",    icon: "⚡", suffix: "// LIVE_OP" },
+];
+
+function render() {
+  const tab = TABS.find(t => t.id === state.tab) || TABS[0];
+  document.getElementById("title-brand").textContent =
+    state.activeBattle && state.tab === "battle" ? "BATTLE" : tab.label;
+  document.getElementById("title-suffix").textContent =
+    state.activeBattle && state.tab === "battle" ? `ROUND ${state.activeBattle.round || 1}` : tab.suffix;
+  document.getElementById("title-suffix").className =
+    state.activeBattle && state.tab === "battle" ? "suffix amber" : "suffix";
+
+  const screen = document.getElementById("screen");
+  let html = "";
+  switch (state.tab) {
+    case "garage":  html = renderGarage(); break;
+    case "equip":   html = renderEquipment(); break;
+    case "pilots":  html = renderPilots(); break;
+    case "forces":  html = renderForces(); break;
+    case "battle":  html = renderBattle(); break;
+  }
+  screen.innerHTML = html;
+
+  document.getElementById("botnav").innerHTML = TABS.map(t => `
+    <button data-tab="${t.id}" ${state.tab === t.id ? 'aria-current="page"' : ""}>
+      <span class="ic">${t.icon}</span>
+      <span>${t.label}</span>
+    </button>
+  `).join("");
+  document.querySelectorAll("#botnav button").forEach(b =>
+    b.addEventListener("click", () => setState({ tab: b.dataset.tab, activeRobotId: null }))
+  );
+
+  document.getElementById("modal-host").innerHTML = state.modal ? renderModal() : "";
+  if (state.modal) {
+    document.querySelector(".modal-back")?.addEventListener("click", (e) => {
+      if (e.target.classList.contains("modal-back")) closeModal();
+    });
+  }
+
+  // Wire all action attributes after rendering. Centralised event
+  // dispatch means screens stay pure-HTML templates.
+  for (const el of document.querySelectorAll("[data-act]")) {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dispatch(el.dataset.act, el.dataset);
+    });
+  }
+}
+
+// Placeholder for screens — implemented further down in this file.
+let renderGarage = () => emptyScreen("GARAGE", "No robots yet.", "+ NEW ROBOT", "new-robot");
+let renderEquipment = () => emptyScreen("EQUIPMENT", "No equipment yet.", "+ NEW", "new-equipment");
+let renderPilots = () => emptyScreen("PILOTS", "No pilots yet.", "+ NEW", "new-pilot");
+let renderForces = () => emptyScreen("FORCES", "No forces yet.", "+ NEW", "new-force");
+let renderBattle = () => emptyScreen("BATTLE", "Deploy a force from FORCES.", "GO TO FORCES", "go-forces");
+let renderModal = () => "";
+
+function emptyScreen(title, msg, btn, act) {
+  return `
+    <div class="empty">
+      <h2>${title}</h2>
+      <p>${msg}</p>
+      <button class="btn primary" style="margin-top:14px" data-act="${act}">${btn}</button>
+    </div>
+  `;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Initialise + dispatch (stubs filled by feature scripts below)
+// ────────────────────────────────────────────────────────────────────
+const handlers = {};
+function dispatch(act, data) {
+  const fn = handlers[act];
+  if (!fn) { showToast("TODO: " + act); return; }
+  fn(data || {});
+}
+handlers["go-forces"] = () => setState({ tab: "forces" });
+
+// ────────────────────────────────────────────────────────────────────
+// Feature scripts. Each one overwrites the matching renderXxx and
+// registers its handlers. Loaded inline below.
+// ────────────────────────────────────────────────────────────────────
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// GARAGE
+// ════════════════════════════════════════════════════════════════════
+renderGarage = function () {
+  if (state.robots.length === 0) {
+    return emptyScreen("GARAGE", "No robots yet — tap + to start your first build.", "+ NEW ROBOT", "new-robot");
+  }
+  const cards = state.robots.map(r => {
+    const dep = depBP(r);
+    const baseBp = calcRobotBP(r);
+    const showDep = dep > baseBp;
+    return `
+      <div class="list-card" data-act="edit-robot" data-id="${r.id}">
+        <div class="thumb">${r.imageData ? `<img src="${escapeHtml(r.imageData)}" />` : "🤖"}</div>
+        <div style="flex:1; min-width:0">
+          <h3>${escapeHtml(r.name || "Unnamed")}</h3>
+          <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
+            <span class="chip">SIL ${r.silhouette || 1}</span>
+            <span class="chip muted">${baseBp} BP</span>
+            ${showDep ? `<span class="chip orange">→ ${dep} DEP</span>` : ""}
+          </div>
+          <div class="meta">
+            FS ${r.frameStrength || 1} · FD ${r.frameDurability || 1} · FM ${r.frameMaterial || 1}
+            · ${(r.components || []).length} components
+          </div>
+        </div>
+        <button class="btn ghost" style="padding:6px 10px" data-act="delete-robot" data-id="${r.id}">✕</button>
+      </div>
+    `;
+  }).join("");
+  return `
+    ${cards}
+    <button class="fab" data-act="new-robot">＋</button>
+  `;
+};
+function depBP(robot) {
+  const base = calcRobotBP(robot);
+  // Equipment BP comes from equipment library refs; pilots from cockpit picks. v0.0.1: just return base.
+  return base;
+}
+handlers["new-robot"] = () => {
+  const r = newRobot();
+  state.robots.push(r);
+  saveRobot(r);
+  pushModal("robot-editor", { id: r.id });
+};
+handlers["edit-robot"] = ({ id }) => {
+  pushModal("robot-editor", { id: Number(id) });
+};
+handlers["delete-robot"] = async ({ id }) => {
+  if (!confirm("Delete this robot?")) return;
+  await dbDelete("robots", Number(id));
+  state.robots = state.robots.filter(r => r.id !== Number(id));
+  render();
+};
+
+function newRobot() {
+  const id = Date.now();
+  return {
+    id, name: "Mech " + state.robots.length, silhouette: 4,
+    frameStrength: 2, frameDurability: 2, frameMaterial: 2,
+    components: [{
+      tempId: id + 1, definition: "CORE", facing: "FRONT",
+      name: "Core", isFrame: true, modules: [], equipment: [],
+    }],
+    notes: "",
+    imageData: null,
+  };
+}
+async function saveRobot(r) { await dbPut("robots", r); }
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// ROBOT EDITOR (modal). v0.0.1: add/remove components per facing +
+// add/remove modules per component. Mirror's the SchematicHub's
+// "tap a component → edit" flow without the 2D schematic itself.
+// ════════════════════════════════════════════════════════════════════
+let renderRobotEditor = function (id) {
+  const r = state.robots.find(x => x.id === id);
+  if (!r) return "<p>Robot not found.</p>";
+  const totalBp = calcRobotBP(r);
+  const weight = calcTotalWeight(r);
+  const maxLoad = calcMaxLoad(r);
+  const totalPower = robotInstalledModuleIds(r).map(i => MODULES_BY_ID[i]?.power || 0).reduce((a,b)=>a+b, 0);
+  return `
+    <h2>${escapeHtml(r.name || "Unnamed")} // EDIT</h2>
+    <div class="field">
+      <label>NAME</label>
+      <input id="robot-name" value="${escapeHtml(r.name)}" />
+    </div>
+    <div class="row-gap" style="margin-bottom:10px">
+      <div class="field" style="flex:1">
+        <label>SIL</label>
+        <input type="number" min="1" max="10" id="robot-sil" value="${r.silhouette}" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>FS</label>
+        <input type="number" min="1" max="6" id="robot-fs" value="${r.frameStrength}" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>FD</label>
+        <input type="number" min="1" max="6" id="robot-fd" value="${r.frameDurability}" />
+      </div>
+      <div class="field" style="flex:1">
+        <label>FM</label>
+        <input type="number" min="1" max="6" id="robot-fm" value="${r.frameMaterial}" />
+      </div>
+    </div>
+    <div class="row-gap" style="margin-bottom:10px; flex-wrap:wrap">
+      <span class="chip">${totalBp} BP</span>
+      <span class="chip ${weight > maxLoad ? 'red' : 'amber'}">${weight} / ${maxLoad} t</span>
+      <span class="chip ${totalPower < 0 ? 'red' : 'green'}">${totalPower >= 0 ? '+' : ''}${totalPower} PWR</span>
+    </div>
+
+    <div class="label-small label-cyan">COMPONENTS</div>
+    ${r.components.map((c, idx) => `
+      <div class="card tight">
+        <div class="row-between">
+          <div>
+            <span class="chip ${defChipClass(c.definition)}">${c.definition}</span>
+            <strong style="margin-left:8px">${escapeHtml(c.name)}</strong>
+          </div>
+          <div class="row-gap">
+            <button class="btn ghost" style="padding:4px 8px" data-act="edit-component" data-rid="${r.id}" data-cid="${c.tempId}">⚙</button>
+            ${idx === 0 ? "" : `<button class="btn ghost" style="padding:4px 8px" data-act="delete-component" data-rid="${r.id}" data-cid="${c.tempId}">✕</button>`}
+          </div>
+        </div>
+        <div class="meta" style="font-size:11px; color:var(--on-surface-muted); margin-top:4px">
+          ${(c.modules || []).length} modules
+          · ${(c.equipment || []).length} equipment
+          · facing ${c.facing || "FRONT"}
+        </div>
+      </div>
+    `).join("")}
+    <button class="btn wide" data-act="add-component" data-rid="${r.id}">＋ ADD COMPONENT</button>
+    <div class="actions">
+      <button class="btn ghost" data-act="modal-close">DONE</button>
+    </div>
+  `;
+};
+function defChipClass(def) {
+  switch (def) {
+    case "CORE": return "";
+    case "HEAD": return "red";
+    case "ARM": return "green";
+    case "LEG": return "amber";
+    case "UTILITY": return "muted";
+    default: return "muted";
+  }
+}
+handlers["modal-close"] = () => {
+  // Save form values back if editing a robot.
+  if (state.modal?.kind === "robot-editor") {
+    const r = state.robots.find(x => x.id === state.modal.data.id);
+    if (r) {
+      const nm = document.getElementById("robot-name")?.value;
+      if (nm != null) r.name = nm;
+      r.silhouette = clampInt("robot-sil", 1, 10, r.silhouette);
+      r.frameStrength = clampInt("robot-fs", 1, 6, r.frameStrength);
+      r.frameDurability = clampInt("robot-fd", 1, 6, r.frameDurability);
+      r.frameMaterial = clampInt("robot-fm", 1, 6, r.frameMaterial);
+      saveRobot(r);
+    }
+  }
+  closeModal();
+};
+function clampInt(id, lo, hi, dflt) {
+  const v = parseInt(document.getElementById(id)?.value || "", 10);
+  if (Number.isNaN(v)) return dflt;
+  return Math.max(lo, Math.min(hi, v));
+}
+handlers["add-component"] = ({ rid }) => {
+  pushModal("add-component", { rid: Number(rid) });
+};
+handlers["edit-component"] = ({ rid, cid }) => {
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["delete-component"] = ({ rid, cid }) => {
+  if (!confirm("Remove this component?")) return;
+  const r = state.robots.find(x => x.id === Number(rid));
+  if (!r) return;
+  r.components = r.components.filter(c => c.tempId !== Number(cid));
+  saveRobot(r);
+  render();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// ADD/EDIT COMPONENT (modal)
+// ════════════════════════════════════════════════════════════════════
+const COMP_DEFS = ["HEAD","ARM","LEG","UTILITY"];
+const FACINGS = ["FRONT","BACK","LEFT","RIGHT","TOP","BOTTOM"];
+
+let renderAddComponent = function (rid) {
+  return `
+    <h2>ADD COMPONENT</h2>
+    <div class="field">
+      <label>NAME</label>
+      <input id="ac-name" value="" placeholder="e.g. Right Arm" />
+    </div>
+    <div class="field">
+      <label>DEFINITION</label>
+      <select id="ac-def">
+        ${COMP_DEFS.map(d => `<option>${d}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <label>FACING</label>
+      <select id="ac-facing">
+        ${FACINGS.map(f => `<option>${f}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <label>FRAME COMPONENT?</label>
+      <select id="ac-frame">
+        <option value="true">Frame (gets Frame Save)</option>
+        <option value="false">Non-Frame (utility)</option>
+      </select>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" data-act="modal-close">CANCEL</button>
+      <button class="btn primary" data-act="confirm-add-component" data-rid="${rid}">ADD</button>
+    </div>
+  `;
+};
+handlers["confirm-add-component"] = ({ rid }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  if (!r) return;
+  const name = document.getElementById("ac-name").value || "Component";
+  const def = document.getElementById("ac-def").value;
+  const facing = document.getElementById("ac-facing").value;
+  const isFrame = document.getElementById("ac-frame").value === "true";
+  const tempId = Date.now() + Math.floor(Math.random() * 1000);
+  r.components.push({
+    tempId, definition: def, facing, name, isFrame,
+    modules: [], equipment: [],
+  });
+  saveRobot(r);
+  pushModal("robot-editor", { id: r.id });
+};
+
+let renderEditComponent = function (rid, cid) {
+  const r = state.robots.find(x => x.id === rid);
+  const c = r?.components.find(c => c.tempId === cid);
+  if (!c) return "<p>Component not found.</p>";
+  const installedIds = (c.modules || []).map(m => m.moduleId);
+  const available = MODULES.filter(m =>
+    (m.definitionLimit.length === 0 || m.definitionLimit.includes(c.definition))
+    && (m.maxPerComponent === -1 || !m.maxPerComponent || installedIds.filter(i => i === m.id).length < (m.maxPerComponent || 1))
+  );
+  return `
+    <h2>${escapeHtml(c.name)} // ${c.definition}</h2>
+    <div class="field">
+      <label>NAME</label>
+      <input id="ec-name" value="${escapeHtml(c.name)}" />
+    </div>
+    <div class="field">
+      <label>FACING</label>
+      <select id="ec-facing">
+        ${FACINGS.map(f => `<option ${f===c.facing?'selected':''}>${f}</option>`).join("")}
+      </select>
+    </div>
+    <div class="label-small label-cyan" style="margin-top:8px">MODULES (${(c.modules || []).length})</div>
+    ${(c.modules || []).map((m, i) => {
+      const def = MODULES_BY_ID[m.moduleId];
+      return `
+        <div class="card tight row-between">
+          <div>
+            <strong>${escapeHtml(def?.name || m.moduleId)}</strong>
+            <div class="meta" style="font-size:10px">W ${def?.weight ?? 0} · P ${def?.power ?? 0}</div>
+          </div>
+          <button class="btn ghost" data-act="remove-module" data-rid="${rid}" data-cid="${cid}" data-idx="${i}">✕</button>
+        </div>
+      `;
+    }).join("")}
+    <button class="btn wide" data-act="add-module" data-rid="${rid}" data-cid="${cid}">＋ ADD MODULE</button>
+    <div class="actions">
+      <button class="btn ghost" data-act="modal-close-component" data-rid="${rid}" data-cid="${cid}">DONE</button>
+    </div>
+  `;
+};
+handlers["modal-close-component"] = ({ rid, cid }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  const c = r?.components.find(c => c.tempId === Number(cid));
+  if (c) {
+    c.name = document.getElementById("ec-name")?.value || c.name;
+    c.facing = document.getElementById("ec-facing")?.value || c.facing;
+    saveRobot(r);
+  }
+  pushModal("robot-editor", { id: Number(rid) });
+};
+handlers["add-module"] = ({ rid, cid }) => {
+  pushModal("module-picker", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["remove-module"] = ({ rid, cid, idx }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  const c = r?.components.find(c => c.tempId === Number(cid));
+  if (!c) return;
+  c.modules.splice(Number(idx), 1);
+  saveRobot(r);
+  render();
+};
+
+let renderModulePicker = function (rid, cid) {
+  const r = state.robots.find(x => x.id === rid);
+  const c = r?.components.find(c => c.tempId === cid);
+  if (!c) return "<p>?</p>";
+  const installedIds = (c.modules || []).map(m => m.moduleId);
+  const eligible = MODULES.filter(m => {
+    if (m.definitionLimit.length > 0 && !m.definitionLimit.includes(c.definition)) return false;
+    if (m.maxPerComponent && m.maxPerComponent !== -1) {
+      const have = installedIds.filter(i => i === m.id).length;
+      if (have >= m.maxPerComponent) return false;
+    }
+    return true;
+  });
+  return `
+    <h2>PICK A MODULE</h2>
+    <p>${escapeHtml(c.name)} · ${c.definition}</p>
+    ${eligible.map(m => `
+      <div class="card tight" data-act="install-module" data-rid="${rid}" data-cid="${cid}" data-mid="${m.id}">
+        <div class="row-between">
+          <strong>${escapeHtml(m.name)}</strong>
+          <span class="chip muted">W ${m.weight} · P ${m.power >= 0 ? "+" : ""}${m.power}</span>
+        </div>
+        <div class="meta" style="font-size:11px; margin-top:4px">${escapeHtml(m.description)}</div>
+      </div>
+    `).join("")}
+    <div class="actions">
+      <button class="btn ghost" data-act="cancel-module-picker" data-rid="${rid}" data-cid="${cid}">CANCEL</button>
+    </div>
+  `;
+};
+handlers["install-module"] = ({ rid, cid, mid }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  const c = r?.components.find(c => c.tempId === Number(cid));
+  if (!c) return;
+  c.modules.push({ moduleId: mid });
+  saveRobot(r);
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["cancel-module-picker"] = ({ rid, cid }) => {
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// EQUIPMENT — list + builder
+// ════════════════════════════════════════════════════════════════════
+renderEquipment = function () {
+  if (state.equipment.length === 0) {
+    return emptyScreen("EQUIPMENT", "Build weapons, armor, gear here.", "+ NEW EQUIPMENT", "new-equipment");
+  }
+  return `
+    ${state.equipment.map(e => `
+      <div class="list-card" data-act="edit-equipment" data-id="${e.id}">
+        <div class="thumb">🔫</div>
+        <div style="flex:1">
+          <h3>${escapeHtml(e.name || "Unnamed")}</h3>
+          <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
+            <span class="chip">SIL ${e.silhouette || 1}</span>
+            <span class="chip muted">${e.bpCost || 0} BP</span>
+            ${e.armor ? `<span class="chip green">ARM ${e.armor}</span>` : ""}
+          </div>
+          <div class="meta">${escapeHtml((e.keywords || []).join(", ") || "no keywords")}</div>
+        </div>
+        <button class="btn ghost" style="padding:6px 10px" data-act="delete-equipment" data-id="${e.id}">✕</button>
+      </div>
+    `).join("")}
+    <button class="fab" data-act="new-equipment">＋</button>
+  `;
+};
+handlers["new-equipment"] = () => {
+  const id = Date.now();
+  const eq = { id, name: "Equipment " + state.equipment.length, silhouette: 1, bpCost: 0, weight: 1, armor: 5, keywords: [], notes: "", maxAmmo: 0, mountPoint: false };
+  state.equipment.push(eq);
+  dbPut("equipment", eq);
+  pushModal("equipment-editor", { id });
+};
+handlers["edit-equipment"] = ({ id }) => pushModal("equipment-editor", { id: Number(id) });
+handlers["delete-equipment"] = async ({ id }) => {
+  if (!confirm("Delete this equipment?")) return;
+  await dbDelete("equipment", Number(id));
+  state.equipment = state.equipment.filter(e => e.id !== Number(id));
+  render();
+};
+
+const KEYWORDS = ["Melee","Ranged","Burst","Penetrating","Tethered","Mount Point","Limited","Heavy","Armored","Energy","Two-handed","Reach","Guard","Energy-Reflective","Overcharged"];
+let renderEquipmentEditor = function (id) {
+  const e = state.equipment.find(x => x.id === id);
+  if (!e) return "<p>?</p>";
+  return `
+    <h2>EQUIPMENT // EDIT</h2>
+    <div class="field"><label>NAME</label><input id="eq-name" value="${escapeHtml(e.name)}" /></div>
+    <div class="row-gap" style="flex-wrap:wrap">
+      <div class="field" style="flex:1; min-width:96px"><label>SIL</label><input id="eq-sil" type="number" min="0" value="${e.silhouette}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>BP</label><input id="eq-bp" type="number" min="0" value="${e.bpCost}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>WEIGHT</label><input id="eq-w" type="number" min="0" value="${e.weight}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>ARMOR</label><input id="eq-arm" type="number" min="0" value="${e.armor}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>MAX AMMO</label><input id="eq-ammo" type="number" min="0" value="${e.maxAmmo}" /></div>
+    </div>
+    <div class="field">
+      <label>KEYWORDS (tap to toggle)</label>
+      <div class="row-gap" style="flex-wrap:wrap">
+        ${KEYWORDS.map(k => `<span class="chip ${(e.keywords || []).includes(k) ? "" : "muted"}" data-act="toggle-keyword" data-id="${e.id}" data-k="${k}">${k}</span>`).join("")}
+      </div>
+    </div>
+    <div class="field">
+      <label>NOTES</label>
+      <textarea id="eq-notes" rows="3">${escapeHtml(e.notes || "")}</textarea>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" data-act="save-equipment" data-id="${e.id}">DONE</button>
+    </div>
+  `;
+};
+handlers["toggle-keyword"] = ({ id, k }) => {
+  const e = state.equipment.find(x => x.id === Number(id));
+  if (!e) return;
+  e.keywords = e.keywords || [];
+  if (e.keywords.includes(k)) e.keywords = e.keywords.filter(x => x !== k);
+  else e.keywords.push(k);
+  if (k === "Mount Point") e.mountPoint = e.keywords.includes(k);
+  dbPut("equipment", e);
+  render();
+};
+handlers["save-equipment"] = ({ id }) => {
+  const e = state.equipment.find(x => x.id === Number(id));
+  if (e) {
+    e.name = document.getElementById("eq-name").value || e.name;
+    e.silhouette = parseInt(document.getElementById("eq-sil").value, 10) || 0;
+    e.bpCost = parseInt(document.getElementById("eq-bp").value, 10) || 0;
+    e.weight = parseInt(document.getElementById("eq-w").value, 10) || 0;
+    e.armor = parseInt(document.getElementById("eq-arm").value, 10) || 0;
+    e.maxAmmo = parseInt(document.getElementById("eq-ammo").value, 10) || 0;
+    e.notes = document.getElementById("eq-notes").value || "";
+    dbPut("equipment", e);
+  }
+  closeModal();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// PILOTS — list + builder
+// ════════════════════════════════════════════════════════════════════
+const RANKS = ["ROOKIE","EXPERIENCED","VETERAN"];
+renderPilots = function () {
+  if (state.pilots.length === 0) {
+    return emptyScreen("PILOTS", "Build pilots here.", "+ NEW PILOT", "new-pilot");
+  }
+  return `
+    ${state.pilots.map(p => `
+      <div class="list-card" data-act="edit-pilot" data-id="${p.id}">
+        <div class="thumb">${p.isAi ? "🤖" : "👤"}</div>
+        <div style="flex:1">
+          <h3>${escapeHtml(p.name || "Unnamed")}</h3>
+          <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
+            <span class="chip">${escapeHtml(p.rank || "ROOKIE")}</span>
+            <span class="chip muted">${p.bpCost || 0} BP</span>
+          </div>
+          <div class="meta">PHY ${p.physical || 1} · MEN ${p.mental || 1} · TRA ${p.training || 1}</div>
+          <div class="meta">${(p.talents || []).join(", ") || "no talents"}</div>
+        </div>
+        <button class="btn ghost" style="padding:6px 10px" data-act="delete-pilot" data-id="${p.id}">✕</button>
+      </div>
+    `).join("")}
+    <button class="fab" data-act="new-pilot">＋</button>
+  `;
+};
+handlers["new-pilot"] = () => {
+  const id = Date.now();
+  const p = { id, name: "Pilot " + state.pilots.length, rank: "ROOKIE", physical: 2, mental: 2, training: 2, talents: [], bpCost: 20, isAi: false };
+  state.pilots.push(p);
+  dbPut("pilots", p);
+  pushModal("pilot-editor", { id });
+};
+handlers["edit-pilot"] = ({ id }) => pushModal("pilot-editor", { id: Number(id) });
+handlers["delete-pilot"] = async ({ id }) => {
+  if (!confirm("Delete this pilot?")) return;
+  await dbDelete("pilots", Number(id));
+  state.pilots = state.pilots.filter(p => p.id !== Number(id));
+  render();
+};
+let renderPilotEditor = function (id) {
+  const p = state.pilots.find(x => x.id === id);
+  if (!p) return "<p>?</p>";
+  const talentSet = new Set(p.talents || []);
+  return `
+    <h2>PILOT // EDIT</h2>
+    <div class="field"><label>NAME</label><input id="p-name" value="${escapeHtml(p.name)}" /></div>
+    <div class="row-gap" style="flex-wrap:wrap">
+      <div class="field" style="flex:1; min-width:120px">
+        <label>RANK</label>
+        <select id="p-rank">${RANKS.map(r => `<option ${r===p.rank?'selected':''}>${r}</option>`).join("")}</select>
+      </div>
+      <div class="field" style="flex:1; min-width:96px"><label>BP</label><input id="p-bp" type="number" min="0" value="${p.bpCost}" /></div>
+    </div>
+    <div class="row-gap" style="flex-wrap:wrap">
+      <div class="field" style="flex:1; min-width:96px"><label>PHYSICAL</label><input id="p-phy" type="number" min="1" max="6" value="${p.physical}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>MENTAL</label><input id="p-men" type="number" min="1" max="6" value="${p.mental}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>TRAINING</label><input id="p-tra" type="number" min="1" max="6" value="${p.training}" /></div>
+    </div>
+    <div class="field"><label>AI?</label><select id="p-ai"><option value="false" ${!p.isAi?'selected':''}>Human</option><option value="true" ${p.isAi?'selected':''}>AI</option></select></div>
+    <div class="label-small label-cyan" style="margin-top:8px">TALENTS</div>
+    <div class="row-gap" style="flex-wrap:wrap">
+      ${TALENTS.map(t => `<span class="chip ${talentSet.has(t.name)?'':'muted'}" data-act="toggle-talent" data-id="${p.id}" data-t="${escapeHtml(t.name)}">${escapeHtml(t.name)}</span>`).join("")}
+    </div>
+    <div class="actions">
+      <button class="btn ghost" data-act="save-pilot" data-id="${p.id}">DONE</button>
+    </div>
+  `;
+};
+handlers["toggle-talent"] = ({ id, t }) => {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (!p) return;
+  p.talents = p.talents || [];
+  if (p.talents.includes(t)) p.talents = p.talents.filter(x => x !== t);
+  else p.talents.push(t);
+  dbPut("pilots", p);
+  render();
+};
+handlers["save-pilot"] = ({ id }) => {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (p) {
+    p.name = document.getElementById("p-name").value || p.name;
+    p.rank = document.getElementById("p-rank").value;
+    p.bpCost = parseInt(document.getElementById("p-bp").value, 10) || 0;
+    p.physical = parseInt(document.getElementById("p-phy").value, 10) || 1;
+    p.mental = parseInt(document.getElementById("p-men").value, 10) || 1;
+    p.training = parseInt(document.getElementById("p-tra").value, 10) || 1;
+    p.isAi = document.getElementById("p-ai").value === "true";
+    dbPut("pilots", p);
+  }
+  closeModal();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// FORCES — list + builder + deploy
+// ════════════════════════════════════════════════════════════════════
+renderForces = function () {
+  if (state.forces.length === 0) {
+    return emptyScreen("FORCES", "Build a force (squad) here.", "+ NEW FORCE", "new-force");
+  }
+  return `
+    ${state.forces.map(f => `
+      <div class="list-card" data-act="edit-force" data-id="${f.id}">
+        <div class="thumb">👥</div>
+        <div style="flex:1">
+          <h3>${escapeHtml(f.name || "Unnamed Force")}</h3>
+          <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
+            <span class="chip">${(f.robotIds || []).length} robots</span>
+            <span class="chip muted">BP cap ${f.bpCap || "—"}</span>
+          </div>
+        </div>
+        <button class="btn ghost" style="padding:6px 10px" data-act="delete-force" data-id="${f.id}">✕</button>
+      </div>
+    `).join("")}
+    <button class="fab" data-act="new-force">＋</button>
+  `;
+};
+handlers["new-force"] = () => {
+  const id = Date.now();
+  const f = { id, name: "Force " + state.forces.length, bpCap: 300, robotIds: [] };
+  state.forces.push(f);
+  dbPut("forces", f);
+  pushModal("force-editor", { id });
+};
+handlers["edit-force"] = ({ id }) => pushModal("force-editor", { id: Number(id) });
+handlers["delete-force"] = async ({ id }) => {
+  if (!confirm("Delete this force?")) return;
+  await dbDelete("forces", Number(id));
+  state.forces = state.forces.filter(f => f.id !== Number(id));
+  render();
+};
+let renderForceEditor = function (id) {
+  const f = state.forces.find(x => x.id === id);
+  if (!f) return "<p>?</p>";
+  return `
+    <h2>FORCE // EDIT</h2>
+    <div class="field"><label>NAME</label><input id="f-name" value="${escapeHtml(f.name)}" /></div>
+    <div class="field"><label>BP CAP</label><input id="f-cap" type="number" min="0" value="${f.bpCap}" /></div>
+    <div class="label-small label-cyan" style="margin-top:8px">ROBOTS (${(f.robotIds || []).length})</div>
+    ${(f.robotIds || []).map(rid => {
+      const r = state.robots.find(x => x.id === rid);
+      return r ? `
+        <div class="card tight row-between">
+          <span>${escapeHtml(r.name)}  <span class="chip muted">${calcRobotBP(r)} BP</span></span>
+          <button class="btn ghost" data-act="force-remove-robot" data-fid="${f.id}" data-rid="${rid}">✕</button>
+        </div>
+      ` : "";
+    }).join("")}
+    <button class="btn wide" data-act="force-add-robot" data-fid="${f.id}">＋ ADD ROBOT</button>
+    <div class="actions">
+      <button class="btn ghost" data-act="save-force" data-id="${f.id}">DONE</button>
+      <button class="btn amber" data-act="deploy-force" data-id="${f.id}">DEPLOY</button>
+    </div>
+  `;
+};
+handlers["save-force"] = ({ id }) => {
+  const f = state.forces.find(x => x.id === Number(id));
+  if (f) {
+    f.name = document.getElementById("f-name").value || f.name;
+    f.bpCap = parseInt(document.getElementById("f-cap").value, 10) || 0;
+    dbPut("forces", f);
+  }
+  closeModal();
+};
+handlers["force-add-robot"] = ({ fid }) => {
+  pushModal("force-add-robot", { fid: Number(fid) });
+};
+let renderForceAddRobot = function (fid) {
+  const f = state.forces.find(x => x.id === fid);
+  const candidates = state.robots.filter(r => !(f.robotIds || []).includes(r.id));
+  if (candidates.length === 0) return `<h2>NO ROBOTS</h2><p>Build robots in the GARAGE first.</p><div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>`;
+  return `
+    <h2>ADD A ROBOT</h2>
+    ${candidates.map(r => `
+      <div class="card tight" data-act="confirm-force-add-robot" data-fid="${fid}" data-rid="${r.id}">
+        <strong>${escapeHtml(r.name)}</strong>
+        <span class="chip muted" style="margin-left:8px">${calcRobotBP(r)} BP</span>
+      </div>
+    `).join("")}
+    <div class="actions"><button class="btn ghost" data-act="back-to-force" data-fid="${fid}">CANCEL</button></div>
+  `;
+};
+handlers["confirm-force-add-robot"] = ({ fid, rid }) => {
+  const f = state.forces.find(x => x.id === Number(fid));
+  if (!f) return;
+  f.robotIds = f.robotIds || [];
+  f.robotIds.push(Number(rid));
+  dbPut("forces", f);
+  pushModal("force-editor", { id: Number(fid) });
+};
+handlers["back-to-force"] = ({ fid }) => pushModal("force-editor", { id: Number(fid) });
+handlers["force-remove-robot"] = ({ fid, rid }) => {
+  const f = state.forces.find(x => x.id === Number(fid));
+  if (!f) return;
+  f.robotIds = (f.robotIds || []).filter(x => x !== Number(rid));
+  dbPut("forces", f);
+  pushModal("force-editor", { id: Number(fid) });
+};
+handlers["deploy-force"] = ({ id }) => {
+  const f = state.forces.find(x => x.id === Number(id));
+  if (!f || (f.robotIds || []).length === 0) {
+    showToast("Add at least one robot first.");
+    return;
+  }
+  const battle = {
+    id: Date.now(),
+    name: f.name + " — " + new Date().toLocaleString(),
+    round: 1,
+    priority: "P1",
+    p1ForceName: f.name,
+    p2ForceName: "Opponent",
+    p1Robots: f.robotIds.map(rid => buildBattleRobotState(state.robots.find(r => r.id === rid), "P1")),
+    p2Robots: [],
+  };
+  state.battles.push(battle);
+  state.activeBattle = battle;
+  state.tab = "battle";
+  state.activeRobotId = null;
+  dbPut("battles", battle);
+  closeModal();
+  render();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// BATTLE — overview + per-robot
+// ════════════════════════════════════════════════════════════════════
+renderBattle = function () {
+  if (!state.activeBattle) {
+    return `
+      <div class="empty">
+        <h2>NO ACTIVE BATTLE</h2>
+        <p>Pick a force in the FORCES tab and tap DEPLOY.</p>
+        <button class="btn primary" style="margin-top:14px" data-act="go-forces">GO TO FORCES</button>
+        ${state.battles.length > 0 ? `
+          <div class="label-small" style="margin-top:24px">RECENT BATTLES</div>
+          ${state.battles.map(b => `
+            <div class="list-card" data-act="resume-battle" data-id="${b.id}">
+              <div class="thumb">⚡</div>
+              <div style="flex:1"><h3>${escapeHtml(b.name)}</h3><div class="meta">Round ${b.round}</div></div>
+            </div>
+          `).join("")}
+        ` : ""}
+      </div>
+    `;
+  }
+  const b = state.activeBattle;
+  if (state.activeRobotId) {
+    return renderPerRobotBattle(b, state.activeRobotId);
+  }
+  return renderBattleOverview(b);
+};
+handlers["resume-battle"] = ({ id }) => {
+  const b = state.battles.find(x => x.id === Number(id));
+  if (b) { state.activeBattle = b; state.activeRobotId = null; render(); }
+};
+
+function renderBattleOverview(b) {
+  return `
+    <div class="card row-between">
+      <div>
+        <div class="label-small">YOUR FORCE</div>
+        <strong>${escapeHtml(b.p1ForceName)}</strong>
+      </div>
+      <div class="row-gap">
+        <span class="chip">ROUND ${b.round}</span>
+        <span class="chip ${b.priority === "P1" ? "amber" : "muted"}">${b.priority === "P1" ? "YOUR" : "OPP"}</span>
+      </div>
+    </div>
+    ${b.p1Robots.map(r => robotOverviewCard(r)).join("")}
+    <div class="row-gap" style="margin-top:14px">
+      <button class="btn amber wide" data-act="pass-priority">PASS PRIORITY</button>
+    </div>
+    <div class="row-gap" style="margin-top:8px">
+      <button class="btn ghost" data-act="round-prev">− ROUND</button>
+      <button class="btn ghost" data-act="round-next" style="flex:1">＋ ROUND</button>
+      <button class="btn danger" data-act="end-battle">END</button>
+    </div>
+  `;
+}
+function robotOverviewCard(r) {
+  const armorCurrent = r.components.reduce((a, c) => a + c.hpCurrent, 0);
+  const armorMax = r.components.reduce((a, c) => a + c.hpMax, 0);
+  return `
+    <div class="card" data-act="open-robot" data-id="${r.robotId}">
+      <div class="row-between">
+        <div>
+          <h3 style="margin:0">${escapeHtml(r.robotName)}</h3>
+        </div>
+        <div class="row-gap">
+          ${statusChip(r)}
+          ${silChip(r)}
+        </div>
+      </div>
+      <div class="stat-grid" style="margin-top:8px">
+        <div class="stat-cell ${armorCurrent < armorMax ? 'warn' : 'ok'}"><span class="lbl">ARM</span><span class="val">${armorCurrent}/${armorMax}</span></div>
+        <div class="stat-cell ${r.fuelCurrent < r.fuelMax/2 ? 'warn' : 'ok'}"><span class="lbl">FUEL</span><span class="val">${r.fuelCurrent}/${r.fuelMax}</span></div>
+        <div class="stat-cell ok"><span class="lbl">SHLD</span><span class="val">${r.shieldsCurrent}/${r.shieldsMax}</span></div>
+        <div class="stat-cell ${r.systemStrain > r.systemStrainThreshold ? 'over' : 'ok'}"><span class="lbl">STR</span><span class="val">${r.systemStrain}/${r.systemStrainThreshold}</span></div>
+      </div>
+    </div>
+  `;
+}
+function silChip(r) {
+  const eff = calcEffectiveSilBattle(r);
+  if (eff !== r.silhouette) return `<span class="chip amber">SIL ${eff}* (base ${r.silhouette})</span>`;
+  return `<span class="chip">SIL ${r.silhouette}</span>`;
+}
+function statusChip(r) {
+  const s = r.statusEffects || [];
+  if (s.includes("SHUTDOWN")) return `<span class="chip red">SHUTDOWN</span>`;
+  if (s.includes("DOWN")) return `<span class="chip red">DOWN</span>`;
+  if (s.includes("GRAPPLED")) return `<span class="chip orange">GRAPPLED</span>`;
+  if (s.includes("CROUCHED")) return `<span class="chip amber">CROUCHED</span>`;
+  if (s.includes("FLYING") || r.altitude > 0) return `<span class="chip">FLYING</span>`;
+  return `<span class="chip green">STANDING</span>`;
+}
+function calcEffectiveSilBattle(r) {
+  let s = r.silhouette;
+  const hf = r.components.some(c => c.modules.some(m => m.moduleId === "horizontal_framing"));
+  if (hf) s = Math.ceil(s / 2);
+  if ((r.statusEffects || []).includes("CROUCHED")) s = Math.ceil(s / 2);
+  return s;
+}
+handlers["pass-priority"] = () => {
+  const b = state.activeBattle;
+  b.priority = b.priority === "P1" ? "P2" : "P1";
+  // Pass clears Pilot Strain per L220.
+  for (const r of b.p1Robots) {
+    r.pilotTokens = 0;
+    // also reset cockpit pilot tokens
+    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, tokens: 0 }));
+  }
+  dbPut("battles", b);
+  render();
+};
+handlers["round-prev"] = () => { if (state.activeBattle.round > 1) state.activeBattle.round--; dbPut("battles", state.activeBattle); render(); };
+handlers["round-next"] = () => { state.activeBattle.round++; dbPut("battles", state.activeBattle); render(); };
+handlers["end-battle"] = async () => {
+  if (!confirm("End this battle?")) return;
+  await dbDelete("battles", state.activeBattle.id);
+  state.battles = state.battles.filter(b => b.id !== state.activeBattle.id);
+  state.activeBattle = null;
+  render();
+};
+handlers["open-robot"] = ({ id }) => {
+  state.activeRobotId = Number(id);
+  render();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// PER-ROBOT BATTLE — VitalsPanel, action sheet, components map
+// ════════════════════════════════════════════════════════════════════
+function renderPerRobotBattle(b, rid) {
+  const r = b.p1Robots.find(x => x.robotId === rid);
+  if (!r) return `<p>Robot ${rid} not found.</p>`;
+  const armorCurrent = r.components.reduce((a, c) => a + c.hpCurrent, 0);
+  const armorMax = r.components.reduce((a, c) => a + c.hpMax, 0);
+  const eff = calcEffectiveSilBattle(r);
+  const silModified = eff !== r.silhouette;
+  return `
+    <div class="card">
+      <div class="row-between">
+        <button class="btn ghost" style="padding:4px 10px" data-act="back-overview">← ${escapeHtml(b.p1ForceName)}</button>
+        <h3 style="margin:0">${escapeHtml(r.robotName)}</h3>
+        ${silModified
+          ? `<span class="chip amber">SIL ${eff}* (base ${r.silhouette})</span>`
+          : `<span class="chip">SIL ${r.silhouette}</span>`}
+      </div>
+      <div class="row-gap" style="margin-top:6px; flex-wrap:wrap">
+        ${statusChip(r)}
+        <button class="btn ghost" style="padding:4px 8px" data-act="status-picker" data-id="${r.robotId}">▾ STATUS</button>
+      </div>
+      <div class="stat-grid" style="margin-top:8px">
+        <div class="stat-cell ${armorCurrent < armorMax ? 'warn' : 'ok'}" data-act="show-armor" data-id="${r.robotId}"><span class="lbl">ARMOR</span><span class="val">${armorCurrent}/${armorMax}</span></div>
+        <div class="stat-cell ${r.fuelCurrent < r.fuelMax/2 ? 'warn' : 'ok'}" data-act="show-fuel" data-id="${r.robotId}"><span class="lbl">FUEL</span><span class="val">${r.fuelCurrent}/${r.fuelMax}</span></div>
+        <div class="stat-cell ok" data-act="show-shields" data-id="${r.robotId}"><span class="lbl">SHLD</span><span class="val">${r.shieldsCurrent}/${r.shieldsMax}</span></div>
+        <div class="stat-cell" data-act="show-pilots" data-id="${r.robotId}">
+          <span class="lbl">P TOK</span>
+          <span class="val">${pilotTokSummary(r)}</span>
+        </div>
+      </div>
+      <div class="stat-grid" style="margin-top:6px">
+        <div class="stat-cell ${r.systemStrain > r.systemStrainThreshold ? 'over' : 'ok'}" data-act="show-strain" data-id="${r.robotId}"><span class="lbl">STR</span><span class="val">${r.systemStrain}/${r.systemStrainThreshold}</span></div>
+        <div class="stat-cell ok" data-act="show-capacitors" data-id="${r.robotId}"><span class="lbl">CAP</span><span class="val">${r.capacitorsRemaining || "—"}</span></div>
+        <div class="stat-cell ok" data-act="show-move" data-id="${r.robotId}"><span class="lbl">GSPD</span><span class="val">${r.groundSpeed || "—"}</span></div>
+        <div class="stat-cell ${r.boostPower > 0 ? "cyan" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">BOOST</span><span class="val">${r.boostPower || "—"}</span></div>
+      </div>
+    </div>
+    ${renderActionSheet(r)}
+    ${renderComponentMap(r)}
+  `;
+}
+function pilotTokSummary(r) {
+  const cockpits = r.cockpitPilots || [];
+  if (cockpits.length === 0) return `${r.pilotTokens || 0}/${r.pilotMental}`;
+  const anyOver = cockpits.some(p => p.mental > 0 && p.tokens > p.mental);
+  return anyOver ? `${cockpits.length} ⚠` : `${cockpits.length} ›`;
+}
+function renderActionSheet(r) {
+  const groups = { primary: [], reaction: [], incidental: [] };
+  for (const [k, a] of Object.entries(ACTIONS)) groups[a.bucket].push([k, a]);
+  return ["primary","reaction","incidental"].map(bucket => `
+    <div class="bucket ${bucket} open">
+      <div class="header"><span class="ic">${bucketIcon(bucket)}</span>${bucket.toUpperCase()}</div>
+      <div class="actions-list">
+        ${groups[bucket].map(([k, a]) => `
+          <button class="action-btn" data-act="open-action" data-id="${r.robotId}" data-k="${k}">
+            <span class="nm">${a.label}</span>
+            <span class="hint">${escapeHtml(a.brief)}</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+}
+function bucketIcon(b) {
+  return b === "primary" ? "⚡" : b === "reaction" ? "🛡" : "•••";
+}
+function renderComponentMap(r) {
+  const tiles = (r.components || []).map(c => {
+    const ratio = c.hpMax > 0 ? c.hpCurrent / c.hpMax : 1;
+    let cls = "tile";
+    if (c.isDestroyed) cls += " dead";
+    else if (c.hpMax === 0) cls += " dim";
+    else if (ratio > 0.66) cls += "";
+    else if (ratio > 0.33) cls += " warn";
+    else cls += " bad";
+    return `
+      <div class="${cls}" data-act="open-comp" data-id="${r.robotId}" data-cid="${c.componentId}">
+        <div class="abbr">${defAbbr(c.definition)}</div>
+        <div class="nm">${escapeHtml((c.name || "").slice(0, 6))}</div>
+        <div class="hp">${c.isDestroyed ? "DEAD" : c.hpMax === 0 ? "—" : `${c.hpCurrent}/${c.hpMax}`}</div>
+      </div>
+    `;
+  }).join("");
+  return `
+    <div class="card">
+      <div class="row-between">
+        <div class="label-small">COMPONENTS</div>
+        <div class="row-gap">
+          <button class="btn ghost" style="padding:4px 8px" data-act="reset-armor" data-id="${r.robotId}">RESET ARMOR</button>
+        </div>
+      </div>
+      <div class="dmap">
+        <div class="row">${tiles}</div>
+      </div>
+    </div>
+  `;
+}
+function defAbbr(d) { return ({ CORE:"COR", HEAD:"HEA", ARM:"ARM", LEG:"LEG", UTILITY:"UTL" })[d] || d.slice(0,3); }
+handlers["back-overview"] = () => { state.activeRobotId = null; render(); };
+handlers["reset-armor"] = ({ id }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  if (!r) return;
+  for (const c of r.components) { c.hpCurrent = c.hpMax; c.isDestroyed = false; }
+  dbPut("battles", state.activeBattle);
+  render();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// ACTION RESOLVE MODAL + STRAIN DIALOGS + COMPONENT SHEET
+// ════════════════════════════════════════════════════════════════════
+handlers["open-action"] = ({ id, k }) => {
+  pushModal("action-resolve", { id: Number(id), k });
+};
+let renderActionResolve = function (rid, k) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const a = ACTIONS[k];
+  if (!r || !a) return "<p>?</p>";
+  const cockpits = r.cockpitPilots || [];
+  return `
+    <h2>${a.label.toUpperCase()}</h2>
+    <p>${escapeHtml(a.brief)}</p>
+    <p class="label-small label-amber">COST: ${escapeHtml(a.cost)}</p>
+    ${cockpits.length > 1 ? `
+      <div class="label-small label-cyan" style="margin-top:10px">ACTING PILOT</div>
+      <p style="font-size:12px; color:var(--on-surface-muted)">Strain auto-applies to picked pilot AND robot. MANUAL = resolve at the table.</p>
+      <div id="pilot-pick-list">
+        ${cockpits.map((p, i) => `
+          <div class="card tight" data-act="pick-pilot" data-pilot="${i}">
+            <strong>${escapeHtml(p.name)}</strong>
+            <span class="chip muted" style="margin-left:8px">TOK ${p.tokens || 0}${p.mental ? "/" + p.mental : ""}</span>
+          </div>
+        `).join("")}
+        <div class="card tight" data-act="pick-pilot" data-pilot="MANUAL">
+          <strong>MANUAL</strong>
+          <span style="font-size:11px; color:var(--on-surface-muted); margin-left:8px">I'll bump strain at the table</span>
+        </div>
+      </div>
+    ` : ""}
+    <details style="margin-top:10px">
+      <summary class="label-small label-cyan" style="cursor:pointer">▶ SHOW FULL RULES</summary>
+      <p style="font-size:12px; color:var(--on-surface-muted); margin-top:6px">${escapeHtml(a.rules)}</p>
+    </details>
+    <div class="actions">
+      <button class="btn ghost" data-act="modal-close">CANCEL</button>
+      <button class="btn amber" data-act="resolve-action" data-id="${rid}" data-k="${k}">RESOLVE</button>
+    </div>
+  `;
+};
+let _pickedPilot = null;
+handlers["pick-pilot"] = ({ pilot }) => {
+  _pickedPilot = pilot;
+  // Highlight choice
+  for (const el of document.querySelectorAll("#pilot-pick-list .card")) {
+    el.style.borderColor = "var(--surface-3)";
+  }
+  const target = document.querySelector(`#pilot-pick-list [data-pilot="${pilot}"]`);
+  if (target) target.style.borderColor = "var(--cyan)";
+};
+handlers["resolve-action"] = ({ id, k }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const a = ACTIONS[k];
+  if (!r || !a) return;
+  // Apply mechanical effect — at minimum bump strain per action's cost line.
+  // v0.0.1 picks the dominant effect: primary +1S +1P (or pilot mental hard-cap-check),
+  // reaction +1S +1P, incidental free. The "MANUAL" pilot pick suppresses the bump.
+  const isManual = _pickedPilot === "MANUAL";
+  if (k === "PASS") {
+    r.pilotTokens = 0;
+    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, tokens: 0 }));
+    state.activeBattle.priority = state.activeBattle.priority === "P1" ? "P2" : "P1";
+    showToast("PASSED.");
+  } else if (k === "SHIELD_RECOVERY") {
+    if (r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax) {
+      r.capacitorsRemaining--;
+      r.shieldsCurrent = Math.min(r.shieldsMax, r.shieldsCurrent + 10);
+      showToast("+10 Shields, −1 Cap.");
+    } else {
+      showToast("Can't recover shields (no cap or already full).");
+      _pickedPilot = null;
+      return;
+    }
+  } else if (k === "STRAIN_CLEAR") {
+    if (r.capacitorsRemaining > 0 && r.systemStrain > 0) {
+      r.capacitorsRemaining--;
+      r.systemStrain = Math.max(0, r.systemStrain - 1);
+      showToast("−1 System Strain, −1 Cap.");
+    } else {
+      showToast("Can't clear strain.");
+      _pickedPilot = null;
+      return;
+    }
+  } else if (!isManual) {
+    if (a.bucket === "primary" || a.bucket === "reaction") {
+      r.systemStrain++;
+      if (_pickedPilot != null && _pickedPilot !== "MANUAL" && r.cockpitPilots[_pickedPilot]) {
+        r.cockpitPilots[_pickedPilot].tokens = (r.cockpitPilots[_pickedPilot].tokens || 0) + 1;
+      } else {
+        r.pilotTokens = (r.pilotTokens || 0) + 1;
+      }
+      showToast(`${a.label} — +1 SStrain +1 PStrain.`);
+    } else {
+      showToast(`${a.label} — free incidental.`);
+    }
+  } else {
+    showToast(`${a.label} — manually resolved.`);
+  }
+  _pickedPilot = null;
+  dbPut("battles", state.activeBattle);
+  closeModal();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// STRAIN / TOKENS / SHIELDS / CAPACITORS / FUEL dialogs
+// ════════════════════════════════════════════════════════════════════
+handlers["show-strain"] = ({ id }) => pushModal("strain-dialog", { id: Number(id) });
+handlers["show-pilots"] = ({ id }) => pushModal("pilots-dialog", { id: Number(id) });
+handlers["show-shields"] = ({ id }) => pushModal("shields-dialog", { id: Number(id) });
+handlers["show-capacitors"] = ({ id }) => pushModal("cap-dialog", { id: Number(id) });
+handlers["show-fuel"] = ({ id }) => pushModal("fuel-dialog", { id: Number(id) });
+handlers["show-armor"] = ({ id }) => pushModal("armor-dialog", { id: Number(id) });
+handlers["show-move"] = ({ id }) => pushModal("move-dialog", { id: Number(id) });
+handlers["status-picker"] = ({ id }) => pushModal("status-picker", { id: Number(id) });
+
+let renderStrainDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  return stepperDialog("SYSTEM STRAIN",
+    `${r.systemStrain} / ${r.systemStrainThreshold}`,
+    "Robot-wide. +1 per action; clears via Heat Vent or a Capacitor spend.",
+    "strain", rid);
+};
+handlers["bump-strain"] = ({ id, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.systemStrain = Math.max(0, r.systemStrain + parseInt(d, 10));
+  dbPut("battles", state.activeBattle);
+  pushModal("strain-dialog", { id: Number(id) });
+};
+
+let renderPilotsDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const cockpits = r.cockpitPilots || [];
+  if (cockpits.length === 0) {
+    // fall back to robot-level tokens
+    return stepperDialog("PILOT TOKENS",
+      `${r.pilotTokens} / ${r.pilotMental}`,
+      "Single-pilot robot. Each action places a token; PASS clears.",
+      "tokens", rid);
+  }
+  return `
+    <h2>PILOT STRAIN</h2>
+    <p>Action Tokens per pilot. PASS clears.</p>
+    ${cockpits.map((p, i) => `
+      <div class="card tight">
+        <div class="row-between">
+          <strong>${escapeHtml(p.name)}</strong>
+          <span>${p.tokens || 0}${p.mental ? " / " + p.mental : ""}</span>
+        </div>
+        <div class="row-gap" style="margin-top:6px">
+          <button class="btn ghost" data-act="bump-pilot-tok" data-id="${rid}" data-p="${i}" data-d="-1">− 1</button>
+          <button class="btn ghost" data-act="bump-pilot-tok" data-id="${rid}" data-p="${i}" data-d="1">+ 1</button>
+        </div>
+      </div>
+    `).join("")}
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+handlers["bump-tokens"] = ({ id, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.pilotTokens = Math.max(0, r.pilotTokens + parseInt(d, 10));
+  dbPut("battles", state.activeBattle);
+  pushModal("pilots-dialog", { id: Number(id) });
+};
+handlers["bump-pilot-tok"] = ({ id, p, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const target = r.cockpitPilots[parseInt(p, 10)];
+  if (!target) return;
+  target.tokens = Math.max(0, (target.tokens || 0) + parseInt(d, 10));
+  dbPut("battles", state.activeBattle);
+  pushModal("pilots-dialog", { id: Number(id) });
+};
+
+let renderShieldsDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  return `
+    <h2>SHIELDS</h2>
+    <p>Whole-robot shield pool. Absorbs damage before any component takes a hit. Recovery: spend 1 capacitor for +10 (rulebook L417).</p>
+    <div class="row-gap" style="margin:12px 0">
+      <button class="btn ghost" data-act="bump-shields" data-id="${rid}" data-d="-1">− 1</button>
+      <strong style="flex:1; text-align:center; font-size:18px">${r.shieldsCurrent} / ${r.shieldsMax}</strong>
+      <button class="btn ghost" data-act="bump-shields" data-id="${rid}" data-d="1">+ 1</button>
+    </div>
+    <button class="btn wide ${r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax ? "amber" : "ghost"}"
+      ${r.capacitorsRemaining <= 0 || r.shieldsCurrent >= r.shieldsMax ? "disabled" : ""}
+      data-act="recover-shields" data-id="${rid}">RECOVER · 1 Cap → +10</button>
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+handlers["bump-shields"] = ({ id, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.shieldsCurrent = Math.max(0, Math.min(r.shieldsMax, r.shieldsCurrent + parseInt(d, 10)));
+  dbPut("battles", state.activeBattle);
+  pushModal("shields-dialog", { id: Number(id) });
+};
+handlers["recover-shields"] = ({ id }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  if (r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax) {
+    r.capacitorsRemaining--;
+    r.shieldsCurrent = Math.min(r.shieldsMax, r.shieldsCurrent + 10);
+    dbPut("battles", state.activeBattle);
+    pushModal("shields-dialog", { id: Number(id) });
+  }
+};
+
+let renderCapDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  return `
+    <h2>CAPACITORS — ${r.capacitorsRemaining} left</h2>
+    <p>+1 die per remaining cap to Shutdown checks. Spend 1 to recover 10 Shields OR remove 1 SStrain (rulebook L417-420).</p>
+    <div class="row-gap" style="margin:12px 0">
+      <button class="btn ghost" data-act="bump-cap" data-id="${rid}" data-d="-1">− 1</button>
+      <strong style="flex:1; text-align:center; font-size:18px">${r.capacitorsRemaining}</strong>
+      <button class="btn ghost" data-act="bump-cap" data-id="${rid}" data-d="1">+ 1</button>
+    </div>
+    <button class="btn wide ${r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax ? "" : "ghost"}"
+      ${r.capacitorsRemaining <= 0 || r.shieldsCurrent >= r.shieldsMax ? "disabled" : ""}
+      data-act="recover-shields" data-id="${rid}">+10 SHIELDS · spend 1 Cap</button>
+    <button class="btn wide ${r.capacitorsRemaining > 0 && r.systemStrain > 0 ? "" : "ghost"}" style="margin-top:6px"
+      ${r.capacitorsRemaining <= 0 || r.systemStrain <= 0 ? "disabled" : ""}
+      data-act="spend-cap-strain" data-id="${rid}">−1 SYSTEM STRAIN · spend 1 Cap</button>
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+handlers["bump-cap"] = ({ id, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.capacitorsRemaining = Math.max(0, r.capacitorsRemaining + parseInt(d, 10));
+  dbPut("battles", state.activeBattle);
+  pushModal("cap-dialog", { id: Number(id) });
+};
+handlers["spend-cap-strain"] = ({ id }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  if (r.capacitorsRemaining > 0 && r.systemStrain > 0) {
+    r.capacitorsRemaining--; r.systemStrain--;
+    dbPut("battles", state.activeBattle);
+    pushModal("cap-dialog", { id: Number(id) });
+  }
+};
+
+let renderFuelDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  return `
+    <h2>FUEL</h2>
+    <p>Spent on Boost actions.</p>
+    <div class="row-gap" style="margin:12px 0">
+      <button class="btn ghost" data-act="bump-fuel" data-id="${rid}" data-d="-1">− 1</button>
+      <strong style="flex:1; text-align:center; font-size:18px">${r.fuelCurrent} / ${r.fuelMax}</strong>
+      <button class="btn ghost" data-act="bump-fuel" data-id="${rid}" data-d="1">+ 1</button>
+    </div>
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+handlers["bump-fuel"] = ({ id, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.fuelCurrent = Math.max(0, Math.min(r.fuelMax, r.fuelCurrent + parseInt(d, 10)));
+  dbPut("battles", state.activeBattle);
+  pushModal("fuel-dialog", { id: Number(id) });
+};
+
+let renderArmorDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  return `
+    <h2>ARMOR</h2>
+    <p>Per-component armor. Tap a component tile on the schematic to take or repair damage.</p>
+    ${r.components.map(c => `
+      <div class="row-between" style="margin:4px 0">
+        <strong>${escapeHtml(c.name)}</strong>
+        <span class="${c.isDestroyed ? "label-red" : c.hpMax === 0 ? "" : c.hpCurrent < c.hpMax ? "label-amber" : "label-cyan"}">
+          ${c.isDestroyed ? "DESTROYED" : c.hpMax === 0 ? "—" : `${c.hpCurrent} / ${c.hpMax}`}
+        </span>
+      </div>
+    `).join("")}
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+let renderMoveDialog = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const boostDraw = r.boostPower > 0 ? Math.ceil(r.robotWeight / r.boostPower) : 0;
+  return `
+    <h2>MOVEMENT</h2>
+    <div class="card tight">Ground Speed: <strong>${r.groundSpeed || "—"}</strong> SU</div>
+    <div class="card tight">Boost Power: <strong>${r.boostPower || "—"}</strong></div>
+    <div class="card tight">Boost Draw: <strong>${boostDraw || "—"}</strong> fuel per SU</div>
+    <div class="card tight">Lift / Load: <strong>${r.robotWeight} / ${r.maxLoad}</strong></div>
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+
+const STATUSES = ["STANDING","CROUCHED","FLYING","GRAPPLED"];
+let renderStatusPicker = function (rid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  return `
+    <h2>SET STATUS</h2>
+    <p>Player-controlled canonical status. DOWN / SHUTDOWN are gameplay-set.</p>
+    ${STATUSES.map(s => {
+      const active = (r.statusEffects || []).includes(s) || (s === "STANDING" && (r.statusEffects || []).length === 0);
+      return `<div class="card tight ${active?"":""}" data-act="set-status" data-id="${rid}" data-s="${s}" style="border-color: var(--${s==="STANDING"?"green":s==="CROUCHED"?"amber":s==="FLYING"?"cyan":"orange"})">${s} ${active ? "<span style='float:right'>ACTIVE</span>" : ""}</div>`;
+    }).join("")}
+    <div class="actions">
+      <button class="btn ghost" data-act="clear-status" data-id="${rid}">CLEAR → STANDING</button>
+      <button class="btn ghost" data-act="modal-close">DONE</button>
+    </div>
+  `;
+};
+const CANONICAL_STATUSES = ["STANDING","CROUCHED","FLYING","DOWN","SHUTDOWN","GRAPPLED"];
+handlers["set-status"] = ({ id, s }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.statusEffects = (r.statusEffects || []).filter(e => !CANONICAL_STATUSES.includes(e));
+  if (s !== "STANDING") r.statusEffects.push(s);
+  dbPut("battles", state.activeBattle);
+  closeModal();
+};
+handlers["clear-status"] = ({ id }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  r.statusEffects = (r.statusEffects || []).filter(e => !CANONICAL_STATUSES.includes(e));
+  dbPut("battles", state.activeBattle);
+  closeModal();
+};
+
+handlers["open-comp"] = ({ id, cid }) => {
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+let renderCompSheet = function (rid, cid) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const c = r?.components.find(x => x.componentId === cid);
+  if (!c) return "<p>?</p>";
+  return `
+    <h2>${escapeHtml(c.name)}</h2>
+    <div class="row-gap">
+      <span class="chip">${c.definition}</span>
+      <span class="chip muted">${c.facing}</span>
+      ${c.isFrame ? `<span class="chip">FRAME</span>` : ""}
+      ${c.isDestroyed ? `<span class="chip red">DESTROYED</span>` : ""}
+    </div>
+    <div style="margin:10px 0; padding:10px; background:rgba(0,0,0,0.15); border-radius:var(--bevel)">
+      <div class="label-small">ARMOR</div>
+      <div class="row-gap" style="margin-top:4px">
+        <button class="btn ghost" data-act="bump-comp-hp" data-id="${rid}" data-cid="${cid}" data-d="-1">− 1</button>
+        <button class="btn ghost" data-act="bump-comp-hp" data-id="${rid}" data-cid="${cid}" data-d="-5">−5</button>
+        <strong style="flex:1; text-align:center; font-size:18px">${c.isDestroyed ? "DESTROYED" : c.hpMax === 0 ? "— (no armor)" : `${c.hpCurrent} / ${c.hpMax}`}</strong>
+        <button class="btn ghost" data-act="bump-comp-hp" data-id="${rid}" data-cid="${cid}" data-d="+1">+ 1</button>
+        <button class="btn ghost" data-act="bump-comp-hp" data-id="${rid}" data-cid="${cid}" data-d="+5">+5</button>
+      </div>
+      <button class="btn wide" style="margin-top:6px" data-act="repair-comp" data-id="${rid}" data-cid="${cid}">REPAIR TO MAX</button>
+      ${c.isDestroyed ? `
+        <button class="btn wide" style="margin-top:6px; background:var(--cyan); color:#07111a" data-act="restore-comp" data-id="${rid}" data-cid="${cid}">UNDO · RESTORE</button>
+        <div class="meta" style="font-size:10px; margin-top:2px">Mistake recovery — full HP, no cascade rewind</div>
+      ` : ""}
+    </div>
+    ${(c.modules || []).length > 0 ? `
+      <div class="label-small">MODULES</div>
+      ${c.modules.map((m, i) => {
+        const def = MODULES_BY_ID[m.moduleId];
+        return `
+          <div class="card tight row-between">
+            <div>
+              <strong>${escapeHtml(def?.name || m.moduleId)}</strong>
+              ${def?.toggleable ? `<span class="chip ${m.toggledOn !== false ? "green" : "muted"}" style="margin-left:8px">${m.toggledOn !== false ? "ON" : "OFF"}</span>` : ""}
+            </div>
+            ${def?.toggleable ? `<button class="btn ghost" data-act="toggle-mod" data-id="${rid}" data-cid="${cid}" data-mi="${i}">TOGGLE</button>` : ""}
+          </div>
+        `;
+      }).join("")}
+    ` : ""}
+    ${(c.equipment || []).length > 0 ? `
+      <div class="label-small" style="margin-top:10px">EQUIPMENT</div>
+      ${c.equipment.map((e, i) => `
+        <div class="card tight">
+          <div class="row-between">
+            <strong>${escapeHtml(e.name || ("Equipment " + (i+1)))}</strong>
+            <span class="chip ${e.armorCurrent <= 0 ? "red" : e.armorCurrent < e.armorMax ? "amber" : "muted"}">ARM ${e.armorCurrent}/${e.armorMax}</span>
+          </div>
+          <div class="row-gap" style="margin-top:6px">
+            <button class="btn ghost" data-act="bump-eq-arm" data-id="${rid}" data-cid="${cid}" data-ei="${i}" data-d="-1" ${e.armorCurrent <= 0 ? "disabled" : ""}>${e.armorCurrent <= 0 ? "DAMAGED" : "DAMAGE −1"}</button>
+            <button class="btn ghost" data-act="repair-eq" data-id="${rid}" data-cid="${cid}" data-ei="${i}" ${e.armorCurrent >= e.armorMax ? "disabled" : ""}>REPAIR</button>
+          </div>
+        </div>
+      `).join("")}
+    ` : ""}
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
+handlers["bump-comp-hp"] = ({ id, cid, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const c = r.components.find(x => x.componentId === Number(cid));
+  if (!c) return;
+  c.hpCurrent = Math.max(0, Math.min(c.hpMax, c.hpCurrent + parseInt(d, 10)));
+  if (c.hpCurrent <= 0 && c.hpMax > 0) c.isDestroyed = true;
+  dbPut("battles", state.activeBattle);
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+handlers["repair-comp"] = ({ id, cid }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const c = r.components.find(x => x.componentId === Number(cid));
+  if (!c) return;
+  c.hpCurrent = c.hpMax;
+  // Only restore if not destroyed; destruction needs explicit UNDO
+  dbPut("battles", state.activeBattle);
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+handlers["restore-comp"] = ({ id, cid }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const c = r.components.find(x => x.componentId === Number(cid));
+  if (!c) return;
+  c.isDestroyed = false;
+  c.hpCurrent = c.hpMax;
+  dbPut("battles", state.activeBattle);
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+handlers["toggle-mod"] = ({ id, cid, mi }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const c = r.components.find(x => x.componentId === Number(cid));
+  if (!c) return;
+  const m = c.modules[parseInt(mi, 10)];
+  m.toggledOn = m.toggledOn === false ? true : false;
+  dbPut("battles", state.activeBattle);
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+handlers["bump-eq-arm"] = ({ id, cid, ei, d }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const c = r.components.find(x => x.componentId === Number(cid));
+  const e = c?.equipment[parseInt(ei, 10)];
+  if (!e) return;
+  e.armorCurrent = Math.max(0, Math.min(e.armorMax, e.armorCurrent + parseInt(d, 10)));
+  dbPut("battles", state.activeBattle);
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+handlers["repair-eq"] = ({ id, cid, ei }) => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const c = r.components.find(x => x.componentId === Number(cid));
+  const e = c?.equipment[parseInt(ei, 10)];
+  if (!e) return;
+  e.armorCurrent = e.armorMax;
+  dbPut("battles", state.activeBattle);
+  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+};
+
+function stepperDialog(title, value, brief, bumpAct, rid) {
+  return `
+    <h2>${title}</h2>
+    <p>${escapeHtml(brief)}</p>
+    <div class="row-gap" style="margin:12px 0">
+      <button class="btn ghost" data-act="bump-${bumpAct}" data-id="${rid}" data-d="-1">− 1</button>
+      <strong style="flex:1; text-align:center; font-size:18px">${value}</strong>
+      <button class="btn ghost" data-act="bump-${bumpAct}" data-id="${rid}" data-d="1">+ 1</button>
+    </div>
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+}
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// MODAL ROUTER + INIT
+// ════════════════════════════════════════════════════════════════════
+renderModal = function () {
+  if (!state.modal) return "";
+  const { kind, data } = state.modal;
+  let body = "";
+  switch (kind) {
+    case "robot-editor":     body = renderRobotEditor(data.id); break;
+    case "add-component":    body = renderAddComponent(data.rid); break;
+    case "edit-component":   body = renderEditComponent(data.rid, data.cid); break;
+    case "module-picker":    body = renderModulePicker(data.rid, data.cid); break;
+    case "equipment-editor": body = renderEquipmentEditor(data.id); break;
+    case "pilot-editor":     body = renderPilotEditor(data.id); break;
+    case "force-editor":     body = renderForceEditor(data.id); break;
+    case "force-add-robot":  body = renderForceAddRobot(data.fid); break;
+    case "action-resolve":   body = renderActionResolve(data.id, data.k); break;
+    case "strain-dialog":    body = renderStrainDialog(data.id); break;
+    case "pilots-dialog":    body = renderPilotsDialog(data.id); break;
+    case "shields-dialog":   body = renderShieldsDialog(data.id); break;
+    case "cap-dialog":       body = renderCapDialog(data.id); break;
+    case "fuel-dialog":      body = renderFuelDialog(data.id); break;
+    case "armor-dialog":     body = renderArmorDialog(data.id); break;
+    case "move-dialog":      body = renderMoveDialog(data.id); break;
+    case "status-picker":    body = renderStatusPicker(data.id); break;
+    case "comp-sheet":       body = renderCompSheet(data.id, data.cid); break;
+    default: body = "<p>?</p>";
+  }
+  return `<div class="modal-back"><div class="modal">${body}</div></div>`;
+};
+
+async function init() {
+  await openDb();
+  const [robots, pilots, equipment, forces, battles] = await Promise.all([
+    dbGetAll("robots"), dbGetAll("pilots"), dbGetAll("equipment"),
+    dbGetAll("forces"), dbGetAll("battles"),
+  ]);
+  state.robots = robots; state.pilots = pilots; state.equipment = equipment;
+  state.forces = forces; state.battles = battles;
+  // If there's a single active battle, resume it.
+  if (battles.length === 1) state.activeBattle = battles[0];
+  render();
+}
+init().catch(err => {
+  console.error(err);
+  document.getElementById("screen").innerHTML = `<div class="empty"><h2>STARTUP ERROR</h2><p>${escapeHtml(err.message)}</p></div>`;
+});
+</script>
+</body>
+</html>
