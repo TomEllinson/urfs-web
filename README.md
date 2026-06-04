@@ -9,7 +9,7 @@ Open `index.html` in any modern browser. Everything lives in one
 file: HTML + CSS + JS. Data persists locally per device via
 IndexedDB. No build step, no toolchain, no server.
 
-## What it has (v0.0.1)
+## What it has (v0.0.2)
 
 - **Garage** — list, create, edit, delete robots
 - **Robot editor** — name, silhouette, frame stats (FS / FD / FM),
@@ -42,11 +42,32 @@ IndexedDB. No build step, no toolchain, no server.
   rulebook
 - **Pilot Token badge** — shows cockpit count + warning glyph
   rather than misleading first-pilot number
-- **Component damage map** — 60dp tappable tiles color-coded
-  green/amber/red by HP ratio, DESTROYED tiles get a red border
+- **Component damage map** — 2D schematic (BFS layout, facing
+  offsets, mirror convention LEFT→+X, post-pass collision
+  resolution) — same layout algorithm as the Android
+  `SchematicRenderer.kt`. Tappable nodes color-coded green/amber/red
+  by HP ratio, DESTROYED tiles get a red border. Renders in BOTH
+  the garage robot editor AND the per-robot battle screen.
 - **Component sheet** — armor ±1 / ±5 / repair / UNDO·RESTORE on
   destroyed components, module toggles, equipment armor with
   DAMAGE / REPAIR controls
+- **Dice roller** — 🎲 ROLL button on every per-robot battle
+  header AND an OPEN DICE ROLLER button inside each
+  ActionResolveDialog (when the action has a roll kind). Roller
+  ports the chip catalog from the Android `DiceTalentChips.kt`:
+  motion / open-air cockpits, Sharpshooter, Deadeye, targeting /
+  melee computers, crouched-on-grabbed, inertia driver, brawler.
+  Pool ±, hits-on (4+/5+/6+), per-die hit highlighting + count.
+- **Image picker** — PICK PHOTO on every robot. Reads via
+  FileReader, center-crops to square, downscales to 512px max,
+  encodes as JPEG (quality 0.82), persists as a data URL on
+  `robot.imageData`. Fully local — no upload, no server. Works on
+  iOS Safari.
+- **Export / import JSON** — EXPORT JSON button writes a versioned
+  blob (`schemaVersion: 1`) covering robots, pilots, equipment,
+  forces, and battles. IMPORT JSON prompts merge-vs-replace and
+  rebuilds the IndexedDB stores. Round-trip with future Android
+  side once it adds the matching importer.
 
 ## How to use
 
@@ -69,37 +90,47 @@ included.
 
 ### Data export / migration
 
-There's no export-to-JSON button yet (v0.0.1). The shapes match
-the Android `RobotEntity` / `ComponentEntity` / `ModuleInstance` /
-`BattleState` 1:1, so a future export-as-JSON button on this side
-plus an import-from-JSON button on the Android side completes the
-round-trip. Until then, this is a self-contained tester app.
+EXPORT JSON in the Garage top bar writes a `schemaVersion: 1` blob
+covering robots, pilots, equipment, forces, and battles. IMPORT
+JSON re-loads it — prompts merge-vs-replace. The shapes match the
+Android `RobotEntity` / `ComponentEntity` / `ModuleInstance` /
+`BattleState` 1:1, so once the Android side adds a matching
+importer the round-trip closes.
 
 ## Known gaps vs Android
 
-- **No 2D / 3D schematic renderer.** The battle screen uses a
-  simpler facing-clustered tile grid for damage tracking. Adding
-  the schematic later means porting `SchematicRenderer.kt` →
-  Canvas2D or SVG.
+- **No 3D schematic renderer.** Tom marked this lowest-priority
+  glitter. 2D schematic shipped in v0.0.2.
 - **No multi-pilot cockpit assignment at deploy.** Pilots aren't
   bound to specific cockpit slots yet — when a robot has cockpits,
   the battle state's `cockpitPilots` array starts empty. The
-  action-resolve pilot picker hides itself until that's wired.
+  action-resolve pilot picker hides itself until that's wired. The
+  dice roller's pilot-talent chips (Sharpshooter / Deadeye /
+  Brawler) likewise stay hidden until pilots are bound.
 - **No rules engine** for damage calc, frame saves, Salvo Mental
   checks, etc. — players resolve at the table, then bump strain /
-  HP / shields using the direct-edit dialogs. This matches how
-  many groups already play.
+  HP / shields using the direct-edit dialogs, and use the dice
+  roller for the dice math. This matches how many groups already
+  play.
 - **Force is single-sided.** P1 only — P2 deploys would be another
   feature.
-- **No image upload for robot photos** — the field exists in the
-  data model (`imageData`) but the UI doesn't expose a picker yet.
 
 ## File layout
 
-Just `index.html`. ~62KB. No build step, no dependencies.
+Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.1 — 2026-06-04
+v0.0.2 — 2026-06-04
+
+### Changelog
+
+- **v0.0.2** (2026-06-04): 2D schematic renderer (BFS + collision
+  pass, mirror convention) in garage editor + per-robot battle.
+  Wired-up dice roller with chip catalog ported from
+  `DiceTalentChips.kt`. Local image picker (FileReader →
+  center-crop → 512px JPEG). Export / import JSON
+  (`schemaVersion: 1`). Inline SVG favicon.
+- **v0.0.1** (2026-06-04): initial single-file parity build.
 
 URFS rulebook source of truth: `../android/app/src/main/assets/rulebook.md`

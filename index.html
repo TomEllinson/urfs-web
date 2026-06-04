@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f14" />
 <title>URFS</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%230b0f14'/%3E%3Ctext x='32' y='42' font-family='ui-monospace,monospace' font-size='28' font-weight='700' text-anchor='middle' fill='%234dd0e1'%3EU%3C/text%3E%3C/svg%3E" />
 <!--
   URFS — web parity build
   Single-file workaround for iOS testers (no Mac, no native iOS build).
@@ -12,7 +13,11 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.1 (2026-06-04)
+  Version: 0.0.2 (2026-06-04)
+    + JSON export/import (top of Garage). Round-trips everything.
+    + Image picker on robot editor (data URL, fully local).
+    + Dice roller with applicable bonus chips per robot/context.
+    + 2D schematic in robot editor + per-robot battle screen.
   Source of truth for rules: ../android/app/src/main/assets/rulebook.md
 -->
 <style>
@@ -340,6 +345,72 @@
   @media (max-width: 320px) {
     .stat-grid { grid-template-columns: repeat(4, 1fr); }
     .stat-cell { padding: 4px 6px; font-size: 12px; }
+  }
+
+  /* ── 2D schematic ───────────────────────────────────────────────── */
+  .schematic-wrap {
+    overflow: auto;
+    border: 1px solid var(--surface-3);
+    border-radius: var(--bevel);
+    background: rgba(0,0,0,0.20);
+    padding: 8px;
+    margin: 8px 0;
+    /* iOS Safari touch-action so users can pan */
+    touch-action: pan-x pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+  .schematic-grid {
+    position: relative;
+  }
+  .schematic-grid svg {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .sch-node {
+    position: absolute;
+    width: 100px; height: 56px;
+    border-radius: var(--bevel);
+    background: var(--surface-2);
+    border: 1px solid rgba(141,160,182,0.30);
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    padding: 4px 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--on-surface);
+  }
+  .sch-node.core { background: rgba(77, 208, 225, 0.10); border-color: rgba(77, 208, 225, 0.55); }
+  .sch-node.head { background: rgba(239, 83, 80, 0.10); border-color: rgba(239, 83, 80, 0.45); }
+  .sch-node.arm { background: rgba(78, 206, 113, 0.10); border-color: rgba(78, 206, 113, 0.45); }
+  .sch-node.leg { background: rgba(255, 179, 71, 0.10); border-color: rgba(255, 179, 71, 0.45); }
+  .sch-node.utility { background: rgba(141, 160, 182, 0.10); border-color: rgba(141, 160, 182, 0.30); }
+  .sch-node.warn { border-color: var(--amber); }
+  .sch-node.bad { border-color: var(--red); }
+  .sch-node.dead { border-color: var(--red); background: rgba(239, 83, 80, 0.18); }
+  .sch-node.selected { box-shadow: 0 0 0 2px var(--cyan); }
+  .sch-node .def {
+    font-size: 8px; font-weight: 800; letter-spacing: 0.06em;
+    color: var(--on-surface-muted);
+  }
+  .sch-node .nm {
+    font-size: 11px; font-weight: 700; line-height: 1.1;
+    overflow: hidden; text-overflow: ellipsis;
+    max-width: 92px; white-space: nowrap;
+  }
+  .sch-node .hp {
+    font-size: 10px; color: var(--on-surface-muted);
+  }
+  .sch-facing {
+    position: absolute;
+    transform: translate(-50%, 0);
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--surface-3);
+    border: 1px solid rgba(77, 208, 225, 0.4);
+    font-size: 8px; font-weight: 700;
+    color: var(--cyan);
+    pointer-events: none;
   }
 
   /* ── Toast ──────────────────────────────────────────────────────── */
@@ -808,9 +879,24 @@ handlers["go-forces"] = () => setState({ tab: "forces" });
 // ════════════════════════════════════════════════════════════════════
 // GARAGE
 // ════════════════════════════════════════════════════════════════════
+function exportImportBar() {
+  return `
+    <div class="row-gap" style="margin-bottom: 10px; gap: 6px">
+      <button class="btn ghost" style="flex:1" data-act="export-json">EXPORT JSON</button>
+      <button class="btn ghost" style="flex:1" data-act="import-json">IMPORT JSON</button>
+    </div>
+  `;
+}
 renderGarage = function () {
   if (state.robots.length === 0) {
-    return emptyScreen("GARAGE", "No robots yet — tap + to start your first build.", "+ NEW ROBOT", "new-robot");
+    return `
+      ${exportImportBar()}
+      <div class="empty">
+        <h2>GARAGE</h2>
+        <p>No robots yet — tap + to start your first build.</p>
+        <button class="btn primary" style="margin-top:14px" data-act="new-robot">+ NEW ROBOT</button>
+      </div>
+    `;
   }
   const cards = state.robots.map(r => {
     const dep = depBP(r);
@@ -836,6 +922,7 @@ renderGarage = function () {
     `;
   }).join("");
   return `
+    ${exportImportBar()}
     ${cards}
     <button class="fab" data-act="new-robot">＋</button>
   `;
@@ -875,6 +962,159 @@ function newRobot() {
   };
 }
 async function saveRobot(r) { await dbPut("robots", r); }
+
+// ────────────────────────────────────────────────────────────────────
+// Image picker for robot photos. Reads via FileReader → resizes to
+// 512px max (center-cropped square via canvas) → stores as data URL
+// on `robot.imageData`. Fully local: no server, no upload, IndexedDB
+// only. Works on iOS Safari (which supports <input type="file"
+// accept="image/*"> + native photo-picker dialog).
+// ────────────────────────────────────────────────────────────────────
+const IMAGE_MAX_DIM = 512;
+const IMAGE_JPEG_QUALITY = 0.82;
+function readImageAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error || new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+}
+function downscaleDataUrl(srcUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // Center-crop to square, then scale to IMAGE_MAX_DIM.
+        const minSide = Math.min(img.width, img.height);
+        const sx = (img.width - minSide) / 2;
+        const sy = (img.height - minSide) / 2;
+        const targetSide = Math.min(IMAGE_MAX_DIM, minSide);
+        const canvas = document.createElement("canvas");
+        canvas.width = targetSide;
+        canvas.height = targetSide;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, targetSide, targetSide);
+        resolve(canvas.toDataURL("image/jpeg", IMAGE_JPEG_QUALITY));
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error("image decode failed"));
+    img.src = srcUrl;
+  });
+}
+handlers["pick-image"] = ({ id }) => {
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = "image/*";
+  inp.onchange = async () => {
+    const file = inp.files?.[0];
+    if (!file) return;
+    try {
+      const raw = await readImageAsDataUrl(file);
+      const sized = await downscaleDataUrl(raw);
+      const r = state.robots.find(x => x.id === Number(id));
+      if (!r) return;
+      r.imageData = sized;
+      await saveRobot(r);
+      pushModal("robot-editor", { id: Number(id) });
+    } catch (e) {
+      console.error(e);
+      alert("Image read failed: " + e.message);
+    }
+  };
+  inp.click();
+};
+handlers["clear-image"] = async ({ id }) => {
+  const r = state.robots.find(x => x.id === Number(id));
+  if (!r) return;
+  r.imageData = null;
+  await saveRobot(r);
+  pushModal("robot-editor", { id: Number(id) });
+};
+
+// ────────────────────────────────────────────────────────────────────
+// JSON export / import. Bundle every store into a versioned blob so
+// testers can back up their work and move it between devices. Schema
+// version exists so we can break-fix-forward without silently eating
+// old files.
+// ────────────────────────────────────────────────────────────────────
+const EXPORT_SCHEMA = 1;
+function buildExportPayload() {
+  return {
+    schemaVersion: EXPORT_SCHEMA,
+    exportedAt: new Date().toISOString(),
+    appVersion: "0.0.2",
+    robots: state.robots,
+    pilots: state.pilots,
+    equipment: state.equipment,
+    forces: state.forces,
+    battles: state.battles,
+  };
+}
+handlers["export-json"] = () => {
+  const payload = buildExportPayload();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const ts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  a.href = url;
+  a.download = `urfs-web-backup-${ts}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Exported. Check your downloads.");
+};
+handlers["import-json"] = () => {
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = "application/json,.json";
+  inp.onchange = async () => {
+    const file = inp.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!payload || typeof payload !== "object") throw new Error("not an object");
+      if (payload.schemaVersion !== EXPORT_SCHEMA) {
+        if (!confirm(`Schema mismatch (file v${payload.schemaVersion} vs app v${EXPORT_SCHEMA}). Import anyway?`)) return;
+      }
+      const merge = confirm("OK = MERGE with current data.\nCancel = REPLACE current data.");
+      if (!merge) {
+        // Wipe each store before importing.
+        for (const s of STORES.filter(s => s !== "settings")) {
+          const db = await openDb();
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(s, "readwrite");
+            tx.objectStore(s).clear();
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+        }
+        state.robots = []; state.pilots = []; state.equipment = [];
+        state.forces = []; state.battles = []; state.activeBattle = null;
+      }
+      const sets = { robots: state.robots, pilots: state.pilots, equipment: state.equipment, forces: state.forces, battles: state.battles };
+      for (const key of ["robots","pilots","equipment","forces","battles"]) {
+        const list = payload[key] || [];
+        for (const row of list) {
+          // Re-key any rows that would collide on merge — generate a fresh id.
+          if (merge && sets[key].some(x => x.id === row.id)) {
+            row.id = Date.now() + Math.floor(Math.random() * 100000);
+          }
+          await dbPut(key, row);
+          sets[key].push(row);
+        }
+      }
+      showToast(`Imported ${(payload.robots || []).length} robots, ${(payload.pilots || []).length} pilots, ${(payload.equipment || []).length} equipment, ${(payload.forces || []).length} forces, ${(payload.battles || []).length} battles.`);
+      render();
+    } catch (e) {
+      console.error(e);
+      alert("Import failed: " + e.message);
+    }
+  };
+  inp.click();
+};
 </script>
 
 <script>
@@ -892,6 +1132,15 @@ let renderRobotEditor = function (id) {
   const totalPower = robotInstalledModuleIds(r).map(i => MODULES_BY_ID[i]?.power || 0).reduce((a,b)=>a+b, 0);
   return `
     <h2>${escapeHtml(r.name || "Unnamed")} // EDIT</h2>
+    <div class="row-gap" style="margin-bottom: 10px">
+      <div class="thumb" style="width:64px; height:64px; background:var(--surface-1); border-radius:var(--bevel); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0">
+        ${r.imageData ? `<img src="${escapeHtml(r.imageData)}" style="width:100%; height:100%; object-fit:cover" />` : "🤖"}
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:4px">
+        <button class="btn ghost" data-act="pick-image" data-id="${r.id}">${r.imageData ? "REPLACE PHOTO" : "PICK PHOTO"}</button>
+        ${r.imageData ? `<button class="btn ghost" data-act="clear-image" data-id="${r.id}">REMOVE</button>` : ""}
+      </div>
+    </div>
     <div class="field">
       <label>NAME</label>
       <input id="robot-name" value="${escapeHtml(r.name)}" />
@@ -919,6 +1168,9 @@ let renderRobotEditor = function (id) {
       <span class="chip ${weight > maxLoad ? 'red' : 'amber'}">${weight} / ${maxLoad} t</span>
       <span class="chip ${totalPower < 0 ? 'red' : 'green'}">${totalPower >= 0 ? '+' : ''}${totalPower} PWR</span>
     </div>
+
+    <div class="label-small label-cyan">SCHEMATIC</div>
+    ${renderSchematic(robotToSchemNodes(r), { tapAct: "edit-component-from-schem", rid: r.id })}
 
     <div class="label-small label-cyan">COMPONENTS</div>
     ${r.components.map((c, idx) => `
@@ -1629,6 +1881,7 @@ function renderPerRobotBattle(b, rid) {
       <div class="row-gap" style="margin-top:6px; flex-wrap:wrap">
         ${statusChip(r)}
         <button class="btn ghost" style="padding:4px 8px" data-act="status-picker" data-id="${r.robotId}">▾ STATUS</button>
+        <button class="btn ghost" style="padding:4px 8px; margin-left:auto" data-act="open-roller" data-id="${r.robotId}" data-k="">🎲 ROLL</button>
       </div>
       <div class="stat-grid" style="margin-top:8px">
         <div class="stat-cell ${armorCurrent < armorMax ? 'warn' : 'ok'}" data-act="show-armor" data-id="${r.robotId}"><span class="lbl">ARMOR</span><span class="val">${armorCurrent}/${armorMax}</span></div>
@@ -1677,32 +1930,19 @@ function bucketIcon(b) {
   return b === "primary" ? "⚡" : b === "reaction" ? "🛡" : "•••";
 }
 function renderComponentMap(r) {
-  const tiles = (r.components || []).map(c => {
-    const ratio = c.hpMax > 0 ? c.hpCurrent / c.hpMax : 1;
-    let cls = "tile";
-    if (c.isDestroyed) cls += " dead";
-    else if (c.hpMax === 0) cls += " dim";
-    else if (ratio > 0.66) cls += "";
-    else if (ratio > 0.33) cls += " warn";
-    else cls += " bad";
-    return `
-      <div class="${cls}" data-act="open-comp" data-id="${r.robotId}" data-cid="${c.componentId}">
-        <div class="abbr">${defAbbr(c.definition)}</div>
-        <div class="nm">${escapeHtml((c.name || "").slice(0, 6))}</div>
-        <div class="hp">${c.isDestroyed ? "DEAD" : c.hpMax === 0 ? "—" : `${c.hpCurrent}/${c.hpMax}`}</div>
-      </div>
-    `;
-  }).join("");
   return `
     <div class="card">
       <div class="row-between">
-        <div class="label-small">COMPONENTS</div>
+        <div class="label-small">SCHEMATIC · tap any node to edit</div>
         <div class="row-gap">
           <button class="btn ghost" style="padding:4px 8px" data-act="reset-armor" data-id="${r.robotId}">RESET ARMOR</button>
         </div>
       </div>
-      <div class="dmap">
-        <div class="row">${tiles}</div>
+      ${renderSchematic(battleRobotToSchemNodes(r), { tapAct: "open-comp-from-schem", rid: r.robotId })}
+      <div style="display:none"><div class="row">
+      <!-- legacy fallback tiles preserved for reference; the schematic
+           above replaces them. -->
+      </div>
       </div>
     </div>
   `;
@@ -1750,6 +1990,10 @@ let renderActionResolve = function (rid, k) {
         </div>
       </div>
     ` : ""}
+    ${actionRollKind(k) ? `
+      <button class="btn wide" style="margin-top:10px" data-act="open-roller" data-id="${rid}" data-k="${k}">🎲 OPEN DICE ROLLER</button>
+      <div class="meta" style="font-size:10px; margin-top:2px; color:var(--on-surface-muted)">Shows the pool composition, available bonus chips, and lets you roll — doesn't auto-apply hits.</div>
+    ` : ""}
     <details style="margin-top:10px">
       <summary class="label-small label-cyan" style="cursor:pointer">▶ SHOW FULL RULES</summary>
       <p style="font-size:12px; color:var(--on-surface-muted); margin-top:6px">${escapeHtml(a.rules)}</p>
@@ -1759,6 +2003,29 @@ let renderActionResolve = function (rid, k) {
       <button class="btn amber" data-act="resolve-action" data-id="${rid}" data-k="${k}">RESOLVE</button>
     </div>
   `;
+};
+// Each action whose mechanics include rolling dice maps to a roll
+// kind that influences which bonus chips show in the roller.
+function actionRollKind(k) {
+  switch (k) {
+    case "CHARGE": case "MELEE_ASSAULT": case "QUICK_STRIKE": case "PARRY":
+      return "MELEE";
+    case "STRAFE": case "SALVO": case "HIP_SHOT":
+      return "RANGED";
+    case "DODGE": case "BOOST_DODGE":
+      return "PHYSICAL";
+    case "HEAT_VENT":
+      return "MENTAL";
+    case "BOOST":
+      return null; // resolved at table, no roll inherent to BOOST itself
+    case "QUICK_MOVE": case "MOVE":
+      return "PHYSICAL"; // optional Physical check on MOVE
+    default:
+      return null;
+  }
+}
+handlers["open-roller"] = ({ id, k }) => {
+  pushModal("dice-roller", { id: Number(id), k: k || null });
 };
 let _pickedPilot = null;
 handlers["pick-pilot"] = ({ pilot }) => {
@@ -1821,6 +2088,172 @@ handlers["resolve-action"] = ({ id, k }) => {
   _pickedPilot = null;
   dbPut("battles", state.activeBattle);
   closeModal();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// DICE ROLLER
+// Pool composition + applicable bonus chips per robot/action context
+// + actual dice roll. Doesn't auto-apply hits — Tom's spec was
+// "display what all needs to be rolled / options for a roll." The
+// player still reads hits and decides damage at the table.
+//
+// Chip catalog ports DiceTalentChips.kt: cockpit-module dice
+// (motion/open-air, +3 each), Sharpshooter / Deadeye (talent gated),
+// targeting-computer (+1 die ranged), melee-computer (+1 die melee),
+// Crouched-on-grabbed-weapon (+2 ranged), multi-arm grab (+2 per
+// alive grabber on a melee), inertia-driver pre-melee bonus.
+// ════════════════════════════════════════════════════════════════════
+const _roller = {
+  poolBase: 4,
+  threshold: 5,
+  chips: {}, // chipId -> boolean
+  lastRoll: null, // { rolls: [...], hits, threshold }
+};
+function rollerComputeChips(r, rollKind) {
+  const ids = r.components.flatMap(c => c.modules.map(m => m.moduleId));
+  const has = id => ids.includes(id);
+  const count = id => ids.filter(x => x === id).length;
+  const chips = [];
+  // Cockpit-module chips (apply when their cockpit type matches roll kind).
+  const motionCockpits = r.components.filter(c => c.modules.some(m => m.moduleId === "motion_cockpit" && (m.toggledOn ?? true))).length;
+  if (motionCockpits > 0 && (rollKind === "PHYSICAL" || rollKind === "MELEE")) {
+    chips.push({ id: "motion", label: `+${motionCockpits * 3} MOTION COCKPIT`, dice: motionCockpits * 3, hint: "+3 dice per cockpit on Physical / Melee checks (rulebook L630)" });
+  }
+  const openAirCockpits = r.components.filter(c => c.modules.some(m => m.moduleId === "open_air_cockpit" && (m.toggledOn ?? true))).length;
+  if (openAirCockpits > 0 && (rollKind === "RANGED" || rollKind === "PHYSICAL")) {
+    chips.push({ id: "openair", label: `+${openAirCockpits * 3} OPEN-AIR`, dice: openAirCockpits * 3, hint: "+3 dice per open-air cockpit on Maneuver / Ranged" });
+  }
+  // Mount-point combat computers (modeled as keyword on equipment — count their presence).
+  const targetingComps = r.components.flatMap(c => c.equipment).filter(e => (e.name || "").toLowerCase().includes("targeting comp")).length;
+  if (targetingComps > 0 && rollKind === "RANGED") {
+    chips.push({ id: "targeting", label: `+${targetingComps} TARGETING`, dice: targetingComps, hint: "+1 die per Targeting Computer for Ranged" });
+  }
+  const meleeComps = r.components.flatMap(c => c.equipment).filter(e => (e.name || "").toLowerCase().includes("melee comp")).length;
+  if (meleeComps > 0 && rollKind === "MELEE") {
+    chips.push({ id: "melee", label: `+${meleeComps} MELEE COMP`, dice: meleeComps, hint: "+1 die per Melee Computer" });
+  }
+  // CROUCHED on Grabbed weapons (rulebook L264) → +2 dice on Ranged.
+  if ((r.statusEffects || []).includes("CROUCHED") && rollKind === "RANGED") {
+    chips.push({ id: "crouched", label: `+2 CROUCHED · grabbed`, dice: 2, hint: "Crouched +2 dice on Ranged with grabbed weapons (L264)" });
+  }
+  // Inertia driver pre-melee charge bonus.
+  if (rollKind === "MELEE" && has("inertia_driver")) {
+    chips.push({ id: "inertia", label: `+${r.silhouette} INERTIA DRIVER`, dice: r.silhouette, hint: "Inertia Driver activation. Costs Sil fuel; toggle if used." });
+  }
+  // Multi-arm grab: presence of any additionalGrabberComponentIds on a weapon (v0.0.2 simplification: skip unless we wire that field).
+  // Talent chips (player toggles before roll).
+  const pilots = r.cockpitPilots || [];
+  const allTalents = pilots.flatMap(p => p.talents || []);
+  if (rollKind === "RANGED" && allTalents.includes("Sharpshooter")) {
+    chips.push({ id: "sharpshooter", label: "+3 SHARPSHOOTER", dice: 3, hint: "Burns the free Incidental, single target only (L631)" });
+  }
+  if (rollKind === "RANGED" && allTalents.includes("Deadeye")) {
+    chips.push({ id: "deadeye", label: "DEADEYE · Unblockable", dice: 0, hint: "Costs +1 token; makes single-target Ranged Unblockable (L625)" });
+  }
+  if (rollKind === "MELEE" && allTalents.includes("Brawler")) {
+    chips.push({ id: "brawler", label: "+1 BRAWLER", dice: 1, hint: "Brawler talent: +1 die on Melee" });
+  }
+  return chips;
+}
+let renderDiceRoller = function (rid, k) {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  if (!r) return "<p>?</p>";
+  const rollKind = k ? actionRollKind(k) : "GENERIC";
+  const chips = rollKind ? rollerComputeChips(r, rollKind) : [];
+  const enabledChipDice = chips
+    .filter(c => _roller.chips[c.id])
+    .reduce((sum, c) => sum + (c.dice || 0), 0);
+  const total = _roller.poolBase + enabledChipDice;
+  const a = k ? ACTIONS[k] : null;
+  return `
+    <h2>🎲 ${a ? a.label.toUpperCase() : "ROLL DICE"} ${rollKind && rollKind !== "GENERIC" ? `<span class="chip">${rollKind}</span>` : ""}</h2>
+    <p style="font-size:12px; color:var(--on-surface-muted)">
+      ${a ? "Pool starts at your base attack/skill dice. Toggle each chip below if it applies. The roller shows hits; you read damage at the table." : "Generic d6 pool for ad-hoc rule checks."}
+    </p>
+
+    <div class="label-small label-cyan" style="margin-top:10px">POOL</div>
+    <div class="row-gap" style="margin-top:4px">
+      <button class="btn ghost" data-act="roller-pool" data-d="-1">−</button>
+      <strong style="flex:1; text-align:center; font-size:18px">${total} d6</strong>
+      <button class="btn ghost" data-act="roller-pool" data-d="1">+</button>
+    </div>
+    <div class="meta" style="font-size:11px; text-align:center; color:var(--on-surface-muted)">
+      base ${_roller.poolBase}${enabledChipDice > 0 ? ` + ${enabledChipDice} chips` : ""}
+    </div>
+
+    <div class="label-small label-cyan" style="margin-top:10px">HITS ON</div>
+    <div class="row-gap" style="margin-top:4px">
+      ${[4,5,6].map(t => `<button class="btn ${_roller.threshold === t ? "primary" : "ghost"}" style="flex:1" data-act="roller-thresh" data-t="${t}">${t}+</button>`).join("")}
+    </div>
+
+    ${chips.length > 0 ? `
+      <div class="label-small label-cyan" style="margin-top:10px">APPLICABLE CHIPS</div>
+      <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px">
+        ${chips.map(c => `
+          <button class="action-btn" data-act="roller-toggle-chip" data-id="${c.id}">
+            <span class="nm" style="color: ${_roller.chips[c.id] ? "var(--cyan)" : "var(--on-surface-muted)"}">
+              ${_roller.chips[c.id] ? "☑" : "☐"} ${escapeHtml(c.label)}
+            </span>
+            <span class="hint">${escapeHtml(c.hint)}</span>
+          </button>
+        `).join("")}
+      </div>
+    ` : `
+      <p class="meta" style="font-size:11px; margin-top:10px">No bonus chips available for this roll kind.</p>
+    `}
+
+    <button class="btn amber wide" style="margin-top:12px" data-act="roller-roll">ROLL ${total} d6 vs ${_roller.threshold}+</button>
+
+    ${_roller.lastRoll ? `
+      <div class="card" style="margin-top:12px">
+        <div class="label-small">LAST ROLL</div>
+        <div class="row-gap" style="flex-wrap:wrap; margin-top:6px">
+          ${_roller.lastRoll.rolls.map(v => `<span class="chip ${v >= _roller.lastRoll.threshold ? "green" : "muted"}" style="font-size:14px; padding:4px 8px">${v}</span>`).join("")}
+        </div>
+        <p style="margin-top:8px; text-align:center; font-size:20px; font-weight:700">
+          ${_roller.lastRoll.hits} HIT${_roller.lastRoll.hits === 1 ? "" : "S"}
+        </p>
+      </div>
+    ` : ""}
+
+    <div class="actions">
+      <button class="btn ghost" data-act="roller-reset">RESET</button>
+      <button class="btn ghost" data-act="modal-close">DONE</button>
+    </div>
+  `;
+};
+handlers["roller-pool"] = ({ d }) => {
+  _roller.poolBase = Math.max(0, _roller.poolBase + parseInt(d, 10));
+  pushModal("dice-roller", state.modal.data);
+};
+handlers["roller-thresh"] = ({ t }) => {
+  _roller.threshold = parseInt(t, 10);
+  pushModal("dice-roller", state.modal.data);
+};
+handlers["roller-toggle-chip"] = ({ id }) => {
+  _roller.chips[id] = !_roller.chips[id];
+  pushModal("dice-roller", state.modal.data);
+};
+handlers["roller-roll"] = () => {
+  const r = state.activeBattle.p1Robots.find(x => x.robotId === state.modal.data.id);
+  const rollKind = state.modal.data.k ? actionRollKind(state.modal.data.k) : "GENERIC";
+  const chips = rollKind && r ? rollerComputeChips(r, rollKind) : [];
+  const chipDice = chips.filter(c => _roller.chips[c.id]).reduce((s, c) => s + (c.dice || 0), 0);
+  const total = _roller.poolBase + chipDice;
+  const rolls = [];
+  for (let i = 0; i < total; i++) rolls.push(1 + Math.floor(Math.random() * 6));
+  const hits = rolls.filter(v => v >= _roller.threshold).length;
+  _roller.lastRoll = { rolls, hits, threshold: _roller.threshold };
+  pushModal("dice-roller", state.modal.data);
+};
+handlers["roller-reset"] = () => {
+  _roller.poolBase = 4;
+  _roller.threshold = 5;
+  _roller.chips = {};
+  _roller.lastRoll = null;
+  pushModal("dice-roller", state.modal.data);
 };
 </script>
 
@@ -2174,6 +2607,264 @@ function stepperDialog(title, value, brief, bumpAct, rid) {
 
 <script>
 // ════════════════════════════════════════════════════════════════════
+// 2D SCHEMATIC RENDERER
+// Port of android/ui/garage/builder/SchematicRenderer.kt — BFS from
+// Core, facing-offset placement, perpendicular sibling spread, post-
+// pass collision resolution (alpha.348 fix), mirror convention
+// (viewer's right = robot's LEFT).
+//
+// Returns an HTML string. Callers pass `mode = "build" | "battle"` to
+// choose what's bound to each tile's click (open module editor vs
+// open damage sheet) and what color rules apply.
+// ════════════════════════════════════════════════════════════════════
+const SCH_NODE_W = 100, SCH_NODE_H = 56;
+const SCH_SPACING_X = 130, SCH_SPACING_Y = 90;
+const SCH_PADDING = 24;
+
+// Mirror convention: robot's LEFT side is on the viewer's RIGHT.
+// Matches SchematicRenderer.kt facingOffset().
+function facingOffset(facing) {
+  switch (facing) {
+    case "TOP":    return [ 0, -1];
+    case "BOTTOM": return [ 0,  1];
+    case "FRONT":  return [ 1, -1];
+    case "BACK":   return [-1,  1];
+    case "RIGHT":  return [-1,  0];
+    case "LEFT":   return [ 1,  0];
+    default:       return [ 1, -1];
+  }
+}
+// Perpendicular sibling spread — same formula as Kotlin
+// perpendicularOffsets(n).
+function perpendicularOffsets(n) {
+  if (n <= 1) return [0];
+  if (n % 2 === 0) {
+    const half = n / 2;
+    const arr = [];
+    for (let i = -half; i <= -1; i++) arr.push(i);
+    for (let i =  1; i <=  half; i++) arr.push(i);
+    return arr;
+  }
+  const half = Math.floor(n / 2);
+  const arr = [];
+  for (let i = -half; i <= half; i++) arr.push(i);
+  return arr;
+}
+
+function computeSchematicLayout(components) {
+  // Build child-of-parent index. Each component is a battle/build
+  // component shape — we use tempId/componentId interchangeably (caller
+  // normalizes).
+  const idOf = c => c._id;
+  const byParent = new Map();
+  for (const c of components) {
+    const p = c._parentId;
+    if (!byParent.has(p)) byParent.set(p, []);
+    byParent.get(p).push(c);
+  }
+  const core = components.find(c => c.definition === "CORE") || components[0];
+  if (!core) return { nodes: [], minX: 0, minY: 0, maxX: 0, maxY: 0 };
+
+  const positions = [];
+  const queue = [{ comp: core, gridX: 0, gridY: 0 }];
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    positions.push(cur);
+    const children = byParent.get(idOf(cur.comp)) || [];
+    // Group by primary facing.
+    const byFacing = new Map();
+    for (const ch of children) {
+      const f = ch.facing || "FRONT";
+      if (!byFacing.has(f)) byFacing.set(f, []);
+      byFacing.get(f).push(ch);
+    }
+    for (const [facing, siblings] of byFacing) {
+      const [dx, dy] = facingOffset(facing);
+      const perpX = -dy, perpY = dx;
+      const offsets = perpendicularOffsets(siblings.length);
+      siblings.forEach((ch, idx) => {
+        const perp = offsets[idx];
+        queue.push({
+          comp: ch,
+          gridX: cur.gridX + dx + perpX * perp,
+          gridY: cur.gridY + dy + perpY * perp,
+        });
+      });
+    }
+  }
+
+  // Collision resolution pass (alpha.348 fix). Walk later occupants
+  // perpendicular to the parent-link direction until they hit a free
+  // cell.
+  const occupied = new Set();
+  const cellKey = (x, y) => `${x},${y}`;
+  for (let i = 0; i < positions.length; i++) {
+    let { gridX, gridY } = positions[i];
+    if (!occupied.has(cellKey(gridX, gridY))) {
+      occupied.add(cellKey(gridX, gridY));
+      continue;
+    }
+    const parent = positions.find(p => idOf(p.comp) === positions[i].comp._parentId);
+    let [dx, dy] = parent ? [gridX - parent.gridX, gridY - parent.gridY] : [1, 0];
+    dx = Math.sign(dx) || 0; dy = Math.sign(dy) || 0;
+    const perpX = -dy || 1, perpY = dx || 0;
+    let step = 1;
+    let nx = gridX, ny = gridY;
+    while (occupied.has(cellKey(nx, ny))) {
+      const sign = step % 2 === 1 ? 1 : -1;
+      const mag = Math.floor((step + 1) / 2);
+      nx = gridX + perpX * sign * mag;
+      ny = gridY + perpY * sign * mag;
+      step++;
+      if (step > 20) break;
+    }
+    occupied.add(cellKey(nx, ny));
+    positions[i] = { ...positions[i], gridX: nx, gridY: ny };
+  }
+
+  const minX = Math.min(...positions.map(p => p.gridX));
+  const maxX = Math.max(...positions.map(p => p.gridX));
+  const minY = Math.min(...positions.map(p => p.gridY));
+  const maxY = Math.max(...positions.map(p => p.gridY));
+  return { nodes: positions, minX, maxX, minY, maxY };
+}
+
+/**
+ * Render a 2D schematic from a list of components (battle OR build
+ * shape). Each component must have:
+ *   _id           : stable component identifier
+ *   _parentId     : id of parent, or null for Core
+ *   definition    : "CORE" / "HEAD" / "ARM" / "LEG" / "UTILITY"
+ *   facing        : "FRONT" / "BACK" / ...
+ *   name          : display name
+ *   _hpRatio      : 0..1 (1 = full armor, 0 = destroyed)
+ *   _destroyed    : boolean
+ *   _hpLabel      : "8/8" or "—" etc.
+ * Returns an HTML string. `mode` is "build" or "battle"; click action
+ * dispatches `tapAct` with `{ id: _id }`.
+ */
+function renderSchematic(components, opts) {
+  const o = Object.assign({ tapAct: "noop", selectedId: null }, opts || {});
+  const layout = computeSchematicLayout(components);
+  if (layout.nodes.length === 0) {
+    return `<div class="meta" style="padding:12px; text-align:center; color:var(--on-surface-muted)">No components yet.</div>`;
+  }
+  const cols = layout.maxX - layout.minX + 1;
+  const rows = layout.maxY - layout.minY + 1;
+  const w = SCH_SPACING_X * cols + SCH_NODE_W + 2 * SCH_PADDING;
+  const h = SCH_SPACING_Y * rows + SCH_NODE_H + 2 * SCH_PADDING;
+  const originX = SCH_PADDING - layout.minX * SCH_SPACING_X;
+  const originY = SCH_PADDING - layout.minY * SCH_SPACING_Y;
+
+  // Sort positions so front-row (smaller gridY) draws last → on top
+  // for click priority (alpha.348 parity).
+  const drawOrder = layout.nodes.slice().sort((a, b) => {
+    if ((a.comp._parentId === null) !== (b.comp._parentId === null))
+      return a.comp._parentId === null ? -1 : 1;
+    if (a.gridY !== b.gridY) return b.gridY - a.gridY;
+    return a.gridX - b.gridX;
+  });
+
+  // Build the connection-line SVG.
+  const lines = [];
+  for (const n of layout.nodes) {
+    const parent = layout.nodes.find(p => p.comp._id === n.comp._parentId);
+    if (!parent) continue;
+    const x1 = originX + parent.gridX * SCH_SPACING_X + SCH_NODE_W / 2;
+    const y1 = originY + parent.gridY * SCH_SPACING_Y + SCH_NODE_H / 2;
+    const x2 = originX + n.gridX * SCH_SPACING_X + SCH_NODE_W / 2;
+    const y2 = originY + n.gridY * SCH_SPACING_Y + SCH_NODE_H / 2;
+    lines.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#5a6c80" stroke-width="2"/>`);
+  }
+
+  const nodeHtml = drawOrder.map(n => {
+    const c = n.comp;
+    const left = originX + n.gridX * SCH_SPACING_X;
+    const top  = originY + n.gridY * SCH_SPACING_Y;
+    let cls = "sch-node " + (c.definition || "").toLowerCase();
+    if (c._destroyed) cls += " dead";
+    else if (c._hpRatio < 0.33) cls += " bad";
+    else if (c._hpRatio < 0.66) cls += " warn";
+    if (o.selectedId === c._id) cls += " selected";
+    const labelChip = c._parentId == null ? "" : `
+      <div class="sch-facing" style="left: ${left + SCH_NODE_W / 2}px; top: ${top + SCH_NODE_H - 4}px">
+        ${escapeHtml(c.facing || "?")}
+      </div>
+    `;
+    return `
+      ${labelChip}
+      <div class="${cls}" style="left:${left}px; top:${top}px"
+           data-act="${o.tapAct}" data-id="${c._id}" data-rid="${o.rid || ""}">
+        <div class="def">${defAbbr2(c.definition)}</div>
+        <div class="nm">${escapeHtml(c.name)}</div>
+        <div class="hp">${escapeHtml(c._hpLabel || "")}</div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="schematic-wrap" style="height: ${Math.min(h, 380)}px">
+      <div class="schematic-grid" style="width: ${w}px; height: ${h}px">
+        <svg width="${w}" height="${h}">${lines.join("")}</svg>
+        ${nodeHtml}
+      </div>
+    </div>
+  `;
+}
+function defAbbr2(d) {
+  return ({ CORE: "COR", HEAD: "HEA", ARM: "ARM", LEG: "LEG", UTILITY: "UTL" })[d] || (d || "?").slice(0, 3);
+}
+
+// ─ Adapters: normalize a build-shape robot or a battle robot to the
+//   schematic data contract.
+function robotToSchemNodes(robot) {
+  // Build shape uses tempId + parentTempId. Inferred chain: every
+  // non-core component without an explicit parent attaches to the
+  // core.
+  const core = (robot.components || []).find(c => c.definition === "CORE");
+  return (robot.components || []).map(c => {
+    const isCore = c === core;
+    return {
+      _id: c.tempId,
+      _parentId: isCore ? null : (c.parentTempId ?? (core ? core.tempId : null)),
+      definition: c.definition,
+      facing: c.facing,
+      name: c.name || c.definition,
+      _hpRatio: 1,
+      _destroyed: false,
+      _hpLabel: "",
+    };
+  });
+}
+function battleRobotToSchemNodes(r) {
+  const core = r.components.find(c => c.definition === "CORE");
+  return r.components.map(c => {
+    const isCore = c === core;
+    const ratio = c.hpMax > 0 ? c.hpCurrent / c.hpMax : 1;
+    const label = c.isDestroyed ? "DEAD" : c.hpMax === 0 ? "—" : `${c.hpCurrent}/${c.hpMax}`;
+    return {
+      _id: c.componentId,
+      _parentId: isCore ? null : (c.parentComponentId ?? (core ? core.componentId : null)),
+      definition: c.definition,
+      facing: c.facing,
+      name: c.name || c.definition,
+      _hpRatio: ratio,
+      _destroyed: !!c.isDestroyed,
+      _hpLabel: label,
+    };
+  });
+}
+handlers["noop"] = () => {};
+handlers["edit-component-from-schem"] = ({ rid, id }) => {
+  pushModal("edit-component", { rid: Number(rid), cid: Number(id) });
+};
+handlers["open-comp-from-schem"] = ({ rid, id }) => {
+  pushModal("comp-sheet", { id: Number(rid), cid: Number(id) });
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
 // MODAL ROUTER + INIT
 // ════════════════════════════════════════════════════════════════════
 renderModal = function () {
@@ -2199,6 +2890,7 @@ renderModal = function () {
     case "move-dialog":      body = renderMoveDialog(data.id); break;
     case "status-picker":    body = renderStatusPicker(data.id); break;
     case "comp-sheet":       body = renderCompSheet(data.id, data.cid); break;
+    case "dice-roller":      body = renderDiceRoller(data.id, data.k); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;
