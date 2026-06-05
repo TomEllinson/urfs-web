@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.14 (2026-06-05)
+  Version: 0.0.15 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -820,6 +820,7 @@ function buildBattleRobotState(robot, side) {
     systemStrain: 0,
     systemStrainThreshold: calcStrainThreshold(robot),
     capacitorsRemaining: calcCapacitorPool(robot),
+    capacitorsMax: calcCapacitorPool(robot),
     pilotTokens: 0,
     pilotMental: 4,
     statusEffects: [],
@@ -2023,6 +2024,8 @@ handlers["pass-priority"] = () => {
     b.priority = "P1";
     for (const robot of [...(b.p1Robots || []), ...(b.p2Robots || [])]) {
       robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+      const cap = robot.capacitorsMax ?? 0;
+      robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
     }
     showToast(`Round ${b.round} begins.`);
   } else {
@@ -2033,7 +2036,19 @@ handlers["pass-priority"] = () => {
   render();
 };
 handlers["round-prev"] = () => { if (state.activeBattle.round > 1) state.activeBattle.round--; dbPut("battles", state.activeBattle); render(); };
-handlers["round-next"] = () => { state.activeBattle.round++; dbPut("battles", state.activeBattle); render(); };
+handlers["round-next"] = () => {
+  const b = state.activeBattle;
+  b.round++;
+  b.passedThisRound = { P1: false, P2: false };
+  b.priority = "P1";
+  for (const robot of [...(b.p1Robots || []), ...(b.p2Robots || [])]) {
+    robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+    const cap = robot.capacitorsMax ?? 0;
+    robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
+  }
+  dbPut("battles", b);
+  render();
+};
 handlers["end-battle"] = async () => {
   if (!confirm("End this battle?")) return;
   await dbDelete("battles", state.activeBattle.id);

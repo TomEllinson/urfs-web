@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.14 — 2026-06-05
+v0.0.15 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.15** (2026-06-05): End-of-round refresh wired. Round
+  advance (PASS double-pass OR manual + ROUND) now ticks every
+  robot's capacitor by +1, clamped to its capacitorsMax (a new
+  field stored at deploy). Manual + ROUND now also resets the
+  budget counters / pass flags / priority to mirror the natural
+  pass-priority round advance. Closes stage 3.
 - **v0.0.14** (2026-06-05): Per-robot screen now shows an
   ACTIONS THIS ROUND chip row between PILOTS and the action sheet:
   P:n/1, R:n/2, I:n. Chip turns amber when its bucket is at cap.

@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.14",
+    current_version: "0.0.15",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -173,8 +173,12 @@
       id: "budget.end_of_round_refresh",
       summary: "End-of-round button: refresh all robots' budgets, increment round counter, tick strain recovery if rules allow, fire +1 capacitor.",
       depends_on: ["budget.actions_this_round_panel"],
-      status: "pending",
+      status: "done",
       acceptance: "Round 2 begins → every robot back to P:0/1, R:0/2, I:0; +1 capacitor on robots that don't override.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: existing PASS PRIORITY already handles round advance (v0.0.11), and the manual + ROUND button at overview is the explicit 'end-of-round' affordance — no need for a 3rd button. Tasks: (1) introduce r.capacitorsMax at deploy via calcCapacitorPool, (2) apply +1 capacitor (clamped to max) on both round-advance paths, (3) strain recovery — rulebook has no auto-strain-tick per round (cleared by Strain Clear incidental), so skipping that spec mention." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.15. buildBattleRobotState now stores capacitorsMax (mirror of starting capacitorsRemaining). Both round-advance paths (pass-priority's double-pass branch AND the manual + ROUND button) now apply r.capacitorsRemaining = Math.min(capacitorsMax, capacitorsRemaining + 1) for every robot on both sides. round-next handler was also missing the budget/passedThisRound/priority resets — those are now wired so manual + ROUND mirrors the natural PASS round-advance. Trace verified: 2 capacitor_bank modules → max=4 starting=4, spend→3, PASS → round 2 cap=4 (clamped, not 5), + ROUND → round 3 cap=4 (stays clamped). Stage-3 action-budget chain closes." },
+      ],
     },
   ],
 
