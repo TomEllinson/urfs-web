@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.2",
+    current_version: "0.0.3",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -32,10 +32,14 @@
   stage_1_cockpit_binding: [
     {
       id: "cockpit.collect_slots_from_robot",
-      summary: "Derive cockpit slot count per robot from its components (modules with definitionLimit COCKPIT). Adapter only — no UI.",
+      summary: "Derive cockpit slot count per robot from its components (any module whose catalog entry marks it as a cockpit-bearing module — single-pilot, multi-pilot, open-air, etc). Adapter only — no UI.",
       depends_on: [],
-      status: "pending",
-      acceptance: "robotCockpitSlots(r) returns array of {componentId, slotName} for every cockpit-bearing module instance.",
+      status: "done",
+      acceptance: "robotCockpitSlots(r) returns array of {componentId, componentName, moduleIndex, moduleId, slotIndex, slotName} for every cockpit slot the robot exposes. Multi-pilot modules contribute multiple slots.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up — implementing adapter only, no UI surface." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.3. robotCockpitSlots() at index.html:726-756. Returns {componentId, componentName, moduleIndex, moduleId, moduleName, slotIndex, slotName, isAi} per slot. componentId fallback handles build (tempId) vs battle/force (componentId). Multi-pilot supported via inner capacity loop. 6 Playwright eval cases verified: empty, single, dual (Std+AI), unknown-module skip, non-cockpit-module skip, input-unmutated." },
+      ],
     },
     {
       id: "cockpit.deploy_step_assign_pilots",

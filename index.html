@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.2 (2026-06-04)
+  Version: 0.0.3 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -721,6 +721,38 @@ function calcEffectiveSil(robot, statuses) {
   if (hf) sil = Math.ceil(sil / 2);
   if (statuses && statuses.includes("CROUCHED")) sil = Math.ceil(sil / 2);
   return sil;
+}
+
+function robotCockpitSlots(robot) {
+  // Build shape uses tempId; battle/force shapes use componentId.
+  const slots = [];
+  const components = robot?.components || [];
+  for (const c of components) {
+    const componentId = c.componentId ?? c.tempId;
+    const componentName = (c.name && c.name.trim()) || c.definition || "?";
+    const modules = c.modules || [];
+    for (let moduleIndex = 0; moduleIndex < modules.length; moduleIndex++) {
+      const mod = modules[moduleIndex];
+      const def = MODULES_BY_ID[mod.moduleId];
+      if (!def) continue;
+      const capacity = def.cockpitSlots || 0;
+      if (capacity <= 0) continue;
+      const isAi = mod.moduleId === "ai_core";
+      for (let slotIndex = 0; slotIndex < capacity; slotIndex++) {
+        slots.push({
+          componentId,
+          componentName,
+          moduleIndex,
+          moduleId: mod.moduleId,
+          moduleName: def.name,
+          slotIndex,
+          slotName: `COCKPIT ${slots.length + 1}`,
+          isAi,
+        });
+      }
+    }
+  }
+  return slots;
 }
 
 // ────────────────────────────────────────────────────────────────────

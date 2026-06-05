@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.2 — 2026-06-04
+v0.0.3 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.3** (2026-06-05): `robotCockpitSlots(robot)` adapter —
+  enumerates every cockpit slot per robot, returning
+  `{componentId, componentName, moduleIndex, moduleId, moduleName,
+  slotIndex, slotName, isAi}` per slot. First slice of stage-1
+  cockpit-pilot binding from the full-port spec; pure adapter, no
+  UI yet.
 - **v0.0.2** (2026-06-04): 2D schematic renderer (BFS + collision
   pass, mirror convention) in garage editor + per-robot battle.
   Wired-up dice roller with chip catalog ported from
