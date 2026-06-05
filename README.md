@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.12 — 2026-06-05
+v0.0.13 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.13** (2026-06-05): Spent actions now dim + disable in the
+  action sheet, with a "PRIMARY SPENT" / "REACTION SPENT" reason
+  chip. PASS stays available (it's how you end the round even with
+  primary spent). Handler also guards against programmatic bypass.
 - **v0.0.12** (2026-06-05): Per-robot action budget tracked. Each
   battle robot has `actionBudget: {primaryUsed, reactionsUsed,
   incidentalsUsed}`. RESOLVE increments the right counter by

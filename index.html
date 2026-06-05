@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.12 (2026-06-05)
+  Version: 0.0.13 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2134,16 +2134,23 @@ function pilotTokSummary(r) {
 function renderActionSheet(r) {
   const groups = { primary: [], reaction: [], incidental: [] };
   for (const [k, a] of Object.entries(ACTIONS)) groups[a.bucket].push([k, a]);
+  const budget = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+  const bucketSpent = b => (b === "primary" && budget.primaryUsed >= 1)
+                       || (b === "reaction" && budget.reactionsUsed >= 2);
   return ["primary","reaction","incidental"].map(bucket => `
     <div class="bucket ${bucket} open">
       <div class="header"><span class="ic">${bucketIcon(bucket)}</span>${bucket.toUpperCase()}</div>
       <div class="actions-list">
-        ${groups[bucket].map(([k, a]) => `
-          <button class="action-btn" data-act="open-action" data-id="${r.robotId}" data-k="${k}">
+        ${groups[bucket].map(([k, a]) => {
+          // PASS is always available — it ends the round even after primary is spent.
+          const spent = k !== "PASS" && bucketSpent(bucket);
+          return `
+          <button class="action-btn" data-act="open-action" data-id="${r.robotId}" data-k="${k}" ${spent ? "disabled" : ""}>
             <span class="nm">${a.label}</span>
             <span class="hint">${escapeHtml(a.brief)}</span>
-          </button>
-        `).join("")}
+            ${spent ? `<span class="reason">${bucket.toUpperCase()} SPENT</span>` : ""}
+          </button>`;
+        }).join("")}
       </div>
     </div>
   `).join("");
@@ -2185,6 +2192,15 @@ handlers["reset-armor"] = ({ id }) => {
 // ACTION RESOLVE MODAL + STRAIN DIALOGS + COMPONENT SHEET
 // ════════════════════════════════════════════════════════════════════
 handlers["open-action"] = ({ id, k }) => {
+  // Defense-in-depth: refuse to open a spent action even if the disabled
+  // attribute was bypassed somehow. PASS is always available.
+  const r = findBattleRobot(state.activeBattle, id);
+  const a = ACTIONS[k];
+  if (r && a && k !== "PASS") {
+    const b = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+    if (a.bucket === "primary" && b.primaryUsed >= 1) { showToast("Primary already spent this round."); return; }
+    if (a.bucket === "reaction" && b.reactionsUsed >= 2) { showToast("Both reactions spent this round."); return; }
+  }
   pushModal("action-resolve", { id: Number(id), k });
 };
 let renderActionResolve = function (rid, k) {

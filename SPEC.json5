@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.12",
+    current_version: "0.0.13",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -151,8 +151,12 @@
       id: "budget.disable_spent_actions",
       summary: "ActionResolveDialog: if a Primary was already used this round, all Primary actions render dimmed + disabled. Same for 2 Reactions used.",
       depends_on: ["budget.per_robot_action_pool"],
-      status: "pending",
+      status: "done",
       acceptance: "After Salvo resolves, every Primary action in the list is unselectable until end of round.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. Plan: dim+disable in renderActionSheet via .action-btn[disabled] (existing CSS) when bucket over cap. PASS is the exception — always available regardless of primary budget. Defense-in-depth: guard open-action handler too." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.13. renderActionSheet now reads r.actionBudget and emits `disabled` attribute + 'PRIMARY SPENT' or 'REACTION SPENT' reason chip (.reason orange) on cards over cap. PASS is exempt (it ends the round even after primary is spent). open-action handler also guards programmatically with a showToast on attempted bypass. Existing .action-btn:disabled { opacity: 0.4 } CSS handles the visual. 4-phase trace + visual screenshot verified." },
+      ],
     },
     {
       id: "budget.actions_this_round_panel",
