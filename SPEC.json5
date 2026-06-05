@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.16",
+    current_version: "0.0.17",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -201,8 +201,12 @@
       id: "damage.buffer_absorbs_first",
       summary: "applyDamage: subtract from component.armor first (down to 0). Overflow = breach. No frame save if armor absorbed everything.",
       depends_on: ["damage.apply_damage_dialog"],
-      status: "pending",
+      status: "done",
       acceptance: "Component with armor 5, take 3 damage → armor=2, no save prompt. Take 7 damage → armor=0, save prompted on 2 breach.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: webapp battle-component shape stores armor as hpCurrent/hpMax (legacy v0.0.1 naming — kept because RESET ARMOR already operates on those fields). Treating c.hpCurrent as the current armor/buffer in this slice. The next slice (frame save) actually triggers the save dialog; this one just absorbs and identifies the breach amount." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.17. applyDamage now computes absorbed=min(armor, amount) and breach=amount-absorbed; mutates c.hpCurrent down to 0; pushes {absorbed, breach} on r.damageLog; toast describes outcome. Returns {absorbed, breach} for the frame-save caller in next slice. 3 cases verified: armor 5/take 3 → armor 2 breach 0; armor 5/take 7 → armor 0 breach 2; armor 0/take 4 → armor 0 breach 4." },
+      ],
     },
     {
       id: "damage.frame_save_dialog",

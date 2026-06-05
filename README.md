@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.16 — 2026-06-05
+v0.0.17 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.17** (2026-06-05): Armor now actually absorbs damage.
+  `applyDamage` computes `absorbed = min(armor, amount)` and
+  `breach = amount - absorbed`, mutates the component's armor down
+  toward 0, logs the absorbed/breach pair on the robot. Frame Save
+  on breach ships in the next slice.
 - **v0.0.16** (2026-06-05): APPLY DAMAGE dialog (stage 4 begins).
   New button on the per-robot schematic toolbar opens a modal with
   component picker (alive only), amount input, and Physical/Energy

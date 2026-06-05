@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.16 (2026-06-05)
+  Version: 0.0.17 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2219,18 +2219,29 @@ handlers["reset-armor"] = ({ id }) => {
 
 // ── Damage pipeline (stage 4) ────────────────────────────────────────
 // applyDamage is the canonical "damage hits a component" entry point.
-// THIS SLICE: stub. The buffer → frame save → cascade pipeline is
-// wired in subsequent slices. For now the stub just toasts and
-// records a log entry so callers can observe the call.
+// Pipeline: armor absorbs first → breach overflow → Frame Save →
+// destruction + cascade. This slice wires the armor absorption +
+// breach identification. Frame Save dialog ships next.
 function applyDamage(robotId, componentId, amount, type) {
   const r = findBattleRobot(state.activeBattle, robotId);
-  if (!r) return;
+  if (!r) return { breach: 0 };
   const c = r.components.find(c => (c.componentId ?? c.tempId) === componentId);
-  if (!c) return;
+  if (!c) return { breach: 0 };
+  // Webapp stores armor as hpCurrent/hpMax (legacy v0.0.1 naming).
+  const armorBefore = c.hpCurrent || 0;
+  const absorbed = Math.min(armorBefore, amount);
+  const breach = amount - absorbed;
+  c.hpCurrent = armorBefore - absorbed;
   r.damageLog = r.damageLog || [];
-  r.damageLog.push({ when: Date.now(), componentId, amount, type });
-  showToast(`${amount} ${type} damage queued on ${c.name || c.definition} — pipeline ships in next slice.`);
+  r.damageLog.push({ when: Date.now(), componentId, amount, type, absorbed, breach });
   dbPut("battles", state.activeBattle);
+  if (breach > 0) {
+    showToast(`${absorbed} absorbed, ${breach} breach — Frame Save next slice.`);
+  } else {
+    showToast(`${absorbed} absorbed by armor. No breach.`);
+  }
+  render();
+  return { absorbed, breach };
 }
 handlers["apply-damage"] = ({ id }) => {
   const r = findBattleRobot(state.activeBattle, id);
