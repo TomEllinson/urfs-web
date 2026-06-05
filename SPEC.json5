@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.3",
+    current_version: "0.0.4",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -45,8 +45,12 @@
       id: "cockpit.deploy_step_assign_pilots",
       summary: "Force deploy flow: after picking robots, show a pilot-assignment step. One picker per cockpit slot. Validates: no double-booking pilots across slots.",
       depends_on: ["cockpit.collect_slots_from_robot"],
-      status: "pending",
+      status: "done",
       acceptance: "Deploying a force with N cockpit-bearing mechs prompts N×slots pilot pickers; cancel returns to robot picker; confirm stores assignments on battle.cockpitPilots[].",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up — inserting pilot-assignment step between deploy click and battle launch." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.4. forceCockpitSlots(force) adapter (pure) + renderPilotAssign modal with per-slot <select> + double-booking filter + AI-Core auto-skip + 0-cockpit fast-path + empty-pilots empty-state banner with GO TO PILOTS shortcut. Wired through document-level change delegation (matches data-act convention). deployForceWithAssignments builds battle.cockpitPilots[] = [{componentId, moduleIndex, slotIndex, slotName, pilotId, isAi, sysStrain:0, pilotStrain:0}] per slot. 7+3 Playwright cases verified." },
+      ],
     },
     {
       id: "cockpit.persist_in_battle_state",

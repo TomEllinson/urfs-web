@@ -121,10 +121,18 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.3 — 2026-06-05
+v0.0.4 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.4** (2026-06-05): Pilot-assignment step inserted into the
+  force deploy flow. Tapping DEPLOY on a force with cockpit-bearing
+  mechs opens a per-slot picker modal (with double-booking
+  prevention and an empty-pilots fast-path to the Pilots tab). AI
+  Core slots auto-assign; all-AI forces skip the modal. Battle's
+  `cockpitPilots[]` is populated from the assignments. Sets up the
+  per-robot strain routing + dice-roller talent chips in upcoming
+  slices.
 - **v0.0.3** (2026-06-05): `robotCockpitSlots(robot)` adapter —
   enumerates every cockpit slot per robot, returning
   `{componentId, componentName, moduleIndex, moduleId, moduleName,

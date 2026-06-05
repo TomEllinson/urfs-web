@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.3 (2026-06-05)
+  Version: 0.0.4 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -755,6 +755,19 @@ function robotCockpitSlots(robot) {
   return slots;
 }
 
+// Pure adapter — no DOM, no side effects, no state mutation.
+function forceCockpitSlots(force) {
+  const slots = [];
+  for (const rid of force.robotIds || []) {
+    const robot = state.robots.find(r => r.id === rid);
+    if (!robot) continue;
+    for (const slot of robotCockpitSlots(robot)) {
+      slots.push({ robotId: robot.id, robotName: robot.name || "Unnamed", ...slot });
+    }
+  }
+  return slots;
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Battle state factory. Mirrors BattleRobotState in BattleState.kt.
 // ────────────────────────────────────────────────────────────────────
@@ -870,6 +883,7 @@ function render() {
       dispatch(el.dataset.act, el.dataset);
     });
   }
+
 }
 
 // Placeholder for screens — implemented further down in this file.
@@ -900,6 +914,16 @@ function dispatch(act, data) {
   fn(data || {});
 }
 handlers["go-forces"] = () => setState({ tab: "forces" });
+
+// Global change-event delegation for data-act selects (e.g. pilot slot picker).
+// Registered once here rather than inside render() so it survives DOM rebuilds.
+document.addEventListener("change", (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  if (!handlers[act]) return;
+  handlers[act](el.dataset, el.value);
+});
 
 // ────────────────────────────────────────────────────────────────────
 // Feature scripts. Each one overwrites the matching renderXxx and
@@ -1742,6 +1766,15 @@ handlers["deploy-force"] = ({ id }) => {
     showToast("Add at least one robot first.");
     return;
   }
+  if (forceCockpitSlots(f).filter(s => !s.isAi).length === 0) {
+    // No human cockpit slots — build AI-only battle directly.
+    deployForceWithAssignments(f, {});
+  } else {
+    pushModal("pilot-assign", { fid: f.id, assignments: {} });
+  }
+};
+
+function deployForceWithAssignments(f, assignments) {
   const battle = {
     id: Date.now(),
     name: f.name + " — " + new Date().toLocaleString(),
@@ -1749,7 +1782,24 @@ handlers["deploy-force"] = ({ id }) => {
     priority: "P1",
     p1ForceName: f.name,
     p2ForceName: "Opponent",
-    p1Robots: f.robotIds.map(rid => buildBattleRobotState(state.robots.find(r => r.id === rid), "P1")),
+    p1Robots: f.robotIds.map(rid => {
+      const robot = state.robots.find(r => r.id === rid);
+      const bs = buildBattleRobotState(robot, "P1");
+      bs.cockpitPilots = robotCockpitSlots(robot).map(slot => {
+        const slotKey = `${robot.id}:${slot.componentId}:${slot.slotIndex}`;
+        return {
+          componentId: slot.componentId,
+          moduleIndex: slot.moduleIndex,
+          slotIndex: slot.slotIndex,
+          slotName: slot.slotName,
+          pilotId: slot.isAi ? null : (assignments[slotKey] || null),
+          isAi: slot.isAi,
+          sysStrain: 0,
+          pilotStrain: 0,
+        };
+      });
+      return bs;
+    }),
     p2Robots: [],
   };
   state.battles.push(battle);
@@ -1759,7 +1809,7 @@ handlers["deploy-force"] = ({ id }) => {
   dbPut("battles", battle);
   closeModal();
   render();
-};
+}
 </script>
 
 <script>
@@ -2897,6 +2947,117 @@ handlers["open-comp-from-schem"] = ({ rid, id }) => {
 
 <script>
 // ════════════════════════════════════════════════════════════════════
+// PILOT ASSIGN MODAL
+// ════════════════════════════════════════════════════════════════════
+function renderPilotAssign(fid, assignments) {
+  const f = state.forces.find(x => x.id === fid);
+  if (!f) return `<h2>FORCE NOT FOUND</h2>`;
+  const allSlots = forceCockpitSlots(f);
+  const humanSlots = allSlots.filter(s => !s.isAi);
+
+  // Empty-pilots guard: no pilots created yet but cockpit slots need filling.
+  if (state.pilots.length === 0 && humanSlots.length > 0) {
+    return `
+      <h2>ASSIGN PILOTS</h2>
+      <div class="meta" style="margin-bottom:12px">${escapeHtml(f.name)}</div>
+      <p style="margin:16px 0">No pilots created yet. Create one in the Pilots tab first.</p>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn ghost" data-act="cancel-pilot-assign" data-fid="${fid}">CANCEL</button>
+        <button class="btn amber" data-act="open-pilots-tab">GO TO PILOTS</button>
+      </div>
+    `;
+  }
+
+  const assignedPilotIds = new Set(Object.values(assignments).filter(Boolean));
+
+  let robotSections = "";
+  for (const rid of f.robotIds || []) {
+    const robot = state.robots.find(r => r.id === rid);
+    if (!robot) continue;
+    const slots = robotCockpitSlots(robot);
+    if (slots.length === 0) continue;
+    robotSections += `<div class="label-small" style="margin:12px 0 6px">${escapeHtml(robot.name || "Unnamed")}</div>`;
+    for (const slot of slots) {
+      const slotKey = `${robot.id}:${slot.componentId}:${slot.slotIndex}`;
+      if (slot.isAi) {
+        robotSections += `
+          <div class="list-card" style="margin-bottom:6px">
+            <div style="flex:1">
+              <div class="meta">${escapeHtml(slot.slotName)} · ${escapeHtml(slot.moduleName)} · ${escapeHtml(slot.componentName)}</div>
+              <span class="chip muted">A.I. Core (auto-piloted)</span>
+            </div>
+          </div>`;
+      } else {
+        const currentPilotId = assignments[slotKey] || "";
+        // Pilots not assigned elsewhere (or assigned to this slot)
+        const available = state.pilots.filter(p =>
+          !assignedPilotIds.has(p.id) || p.id === currentPilotId
+        );
+        const opts = `<option value="">— Unassigned —</option>` +
+          available.map(p =>
+            `<option value="${p.id}" ${p.id === currentPilotId ? "selected" : ""}>${escapeHtml(p.name || "Pilot")} (${p.rank || ""})</option>`
+          ).join("");
+        robotSections += `
+          <div class="list-card" style="margin-bottom:6px">
+            <div style="flex:1">
+              <div class="meta">${escapeHtml(slot.slotName)} · ${escapeHtml(slot.moduleName)} · ${escapeHtml(slot.componentName)}</div>
+              <select data-act="pilot-slot-changed" data-fid="${fid}" data-key="${slotKey}"
+                style="margin-top:6px;width:100%;background:var(--bg2);color:var(--fg);border:1px solid var(--border);padding:6px;border-radius:4px">
+                ${opts}
+              </select>
+            </div>
+          </div>`;
+      }
+    }
+  }
+
+  const allAssigned = humanSlots.every(s => {
+    const k = `${s.robotId}:${s.componentId}:${s.slotIndex}`;
+    return assignments[k];
+  });
+  const deployDisabled = allAssigned ? "" : "disabled";
+  const deployClass = allAssigned ? "btn amber" : "btn amber disabled";
+
+  return `
+    <h2>ASSIGN PILOTS</h2>
+    <div class="meta" style="margin-bottom:12px">${escapeHtml(f.name)}</div>
+    ${robotSections}
+    <div class="actions" style="margin-top:16px">
+      <button class="btn ghost" data-act="cancel-pilot-assign" data-fid="${fid}">CANCEL</button>
+      <button class="${deployClass}" data-act="confirm-pilot-assign" data-fid="${fid}" ${deployDisabled}>DEPLOY</button>
+    </div>
+  `;
+}
+
+handlers["pilot-slot-changed"] = ({ fid, key }, value) => {
+  if (!state.modal || state.modal.kind !== "pilot-assign") return;
+  state.modal.data.assignments[key] = value || null;
+  render();
+};
+
+handlers["confirm-pilot-assign"] = ({ fid }) => {
+  const f = state.forces.find(x => x.id === Number(fid));
+  if (!f) return;
+  const assignments = (state.modal && state.modal.data && state.modal.data.assignments) || {};
+  const slots = forceCockpitSlots(f);
+  const humanSlots = slots.filter(s => !s.isAi);
+  if (humanSlots.some(s => !assignments[`${s.robotId}:${s.componentId}:${s.slotIndex}`])) return;
+  deployForceWithAssignments(f, assignments);
+};
+
+handlers["cancel-pilot-assign"] = ({ fid }) => {
+  pushModal("force-editor", { id: Number(fid) });
+};
+
+handlers["open-pilots-tab"] = () => {
+  closeModal();
+  state.tab = "pilots";
+  render();
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
 // MODAL ROUTER + INIT
 // ════════════════════════════════════════════════════════════════════
 renderModal = function () {
@@ -2923,6 +3084,7 @@ renderModal = function () {
     case "status-picker":    body = renderStatusPicker(data.id); break;
     case "comp-sheet":       body = renderCompSheet(data.id, data.cid); break;
     case "dice-roller":      body = renderDiceRoller(data.id, data.k); break;
+    case "pilot-assign":    body = renderPilotAssign(data.fid, data.assignments); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;
