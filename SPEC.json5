@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.11",
+    current_version: "0.0.12",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -119,7 +119,6 @@
         { when: "2026-06-05", who: "claude", note: "shipped in 0.0.10. CSS: new .card.friendly (3px cyan left border) and .card.opposing (3px red left border) modifiers; reused existing --cyan / --red tokens. renderBattleOverview headers use .label-cyan / .label-red on YOUR / OPPONENT label-small. robotOverviewCard now applies sideClass = r.side === 'P2' ? 'opposing' : 'friendly'. Tap-to-detail verified for P2 (clicked P2Bot card → state.activeRobotId === 4002 via findBattleRobot). Visual screenshot captured." },
       ],
       depends_on: ["twosides.deploy_picks_two_forces"],
-      status: "pending",
       acceptance: "Visual: two header sections with color-distinct chrome (cyan vs red).",
     },
     {
@@ -141,8 +140,12 @@
       id: "budget.per_robot_action_pool",
       summary: "Per-robot per-round: 1 Primary, 2 Reactions, ∞ Incidentals. State held on battle.robotState[robotId] = {primaryUsed, reactionsUsed, incidentalsUsed}.",
       depends_on: ["twosides.priority_handoff"],
-      status: "pending",
+      status: "done",
       acceptance: "Spending an action increments the right counter; state persists on save/restore.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: storing actionBudget nested on each BattleRobotState (consistent with cockpitPilots[] pattern) instead of a sibling battle.robotState{robotId} map. Easier round-trip, easier per-robot lookup, no map serialization concerns. Spec's literal map form is functionally equivalent." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.12. buildBattleRobotState now initializes actionBudget:{primaryUsed:0, reactionsUsed:0, incidentalsUsed:0}. resolve-action handler bumps the matching counter (primary/reaction/incidental from a.bucket) on each resolve (excluding PASS, which is its own thing). pass-priority's round-advance branch resets all robots' actionBudget back to zeros across both sides. 5-phase Playwright trace verified: deploy 0/0/0 → Salvo 1/0/0 → Dodge 1/1/0 → Pivot 1/1/1 → PASS round-up 0/0/0 + round=2. UI affordances (disable spent buttons, ACTIONS THIS ROUND chip) come in the next two slices." },
+      ],
     },
     {
       id: "budget.disable_spent_actions",

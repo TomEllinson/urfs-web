@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.11 — 2026-06-05
+v0.0.12 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.12** (2026-06-05): Per-robot action budget tracked. Each
+  battle robot has `actionBudget: {primaryUsed, reactionsUsed,
+  incidentalsUsed}`. RESOLVE increments the right counter by
+  bucket; round advance (PASS double-pass or solo PASS) resets
+  every robot back to 0/0/0. UI affordances next.
 - **v0.0.11** (2026-06-05): Priority handoff state machine.
   PASS PRIORITY now reads the current holder, clears THAT side's
   pilot strain (was a long-standing bug — old code only ever

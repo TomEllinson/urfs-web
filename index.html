@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.11 (2026-06-05)
+  Version: 0.0.12 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -829,6 +829,7 @@ function buildBattleRobotState(robot, side) {
     maxLoad: calcMaxLoad(robot),
     altitude: 0, inertia: 0,
     cockpitPilots: [], // populated when force deploys with pilots
+    actionBudget: { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 },
   };
 }
 
@@ -2020,6 +2021,9 @@ handlers["pass-priority"] = () => {
     b.round = (b.round || 1) + 1;
     b.passedThisRound = { P1: false, P2: false };
     b.priority = "P1";
+    for (const robot of [...(b.p1Robots || []), ...(b.p2Robots || [])]) {
+      robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+    }
     showToast(`Round ${b.round} begins.`);
   } else {
     b.priority = passingSide === "P1" ? "P2" : "P1";
@@ -2341,6 +2345,13 @@ handlers["resolve-action"] = ({ id, k }) => {
     showToast(`${a.label} — manually resolved.`);
   }
   _pickedPilot = null;
+  // Bump per-robot action budget — purely additive; UI affordances in next slice.
+  if (k !== "PASS") {
+    r.actionBudget = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+    if (a.bucket === "primary") r.actionBudget.primaryUsed++;
+    else if (a.bucket === "reaction") r.actionBudget.reactionsUsed++;
+    else if (a.bucket === "incidental") r.actionBudget.incidentalsUsed++;
+  }
   dbPut("battles", state.activeBattle);
   closeModal();
 };
