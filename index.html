@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.9 (2026-06-05)
+  Version: 0.0.10 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -117,6 +117,8 @@
   }
   .card.tight { padding: 10px; }
   .card.row { display: flex; gap: 12px; align-items: flex-start; }
+  .card.friendly { border-left: 3px solid var(--cyan); }
+  .card.opposing { border-left: 3px solid var(--red); }
   .chip {
     display: inline-flex; align-items: center;
     padding: 2px 6px; border-radius: 3px;
@@ -1860,10 +1862,10 @@ handlers["resume-battle"] = ({ id }) => {
 
 function renderBattleOverview(b) {
   return `
-    <div class="card row-between">
+    <div class="card friendly row-between">
       <div>
-        <div class="label-small">YOUR FORCE</div>
-        <strong>${escapeHtml(b.p1ForceName)}</strong>
+        <div class="label-small label-cyan">YOUR FORCE</div>
+        <strong>${escapeHtml(b.p1ForceName || "Your force")}</strong>
       </div>
       <div class="row-gap">
         <span class="chip">ROUND ${b.round}</span>
@@ -1872,9 +1874,9 @@ function renderBattleOverview(b) {
     </div>
     ${b.p1Robots.map(r => robotOverviewCard(r)).join("")}
     ${(b.p2Robots && b.p2Robots.length > 0) ? `
-    <div class="card row-between" style="margin-top:10px">
+    <div class="card opposing row-between" style="margin-top:10px">
       <div>
-        <div class="label-small">OPPONENT FORCE</div>
+        <div class="label-small label-red">OPPONENT FORCE</div>
         <strong>${escapeHtml(b.p2ForceName || "Opponent")}</strong>
       </div>
     </div>
@@ -1946,8 +1948,9 @@ handlers["select-opponent-force"] = ({ fid }) => {
 function robotOverviewCard(r) {
   const armorCurrent = r.components.reduce((a, c) => a + c.hpCurrent, 0);
   const armorMax = r.components.reduce((a, c) => a + c.hpMax, 0);
+  const sideClass = r.side === "P2" ? "opposing" : "friendly";
   return `
-    <div class="card" data-act="open-robot" data-id="${r.robotId}">
+    <div class="card ${sideClass}" data-act="open-robot" data-id="${r.robotId}">
       <div class="row-between">
         <div>
           <h3 style="margin:0">${escapeHtml(r.robotName)}</h3>

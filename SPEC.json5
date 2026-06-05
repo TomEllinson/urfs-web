@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.9",
+    current_version: "0.0.10",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -113,7 +113,11 @@
     },
     {
       id: "twosides.battle_overview_both_sides",
+      status: "done",
       summary: "Battle overview renders YOUR FORCE and OPPONENT FORCE sections, each with their robot cards. Tap-to-detail works on either side.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.10. CSS: new .card.friendly (3px cyan left border) and .card.opposing (3px red left border) modifiers; reused existing --cyan / --red tokens. renderBattleOverview headers use .label-cyan / .label-red on YOUR / OPPONENT label-small. robotOverviewCard now applies sideClass = r.side === 'P2' ? 'opposing' : 'friendly'. Tap-to-detail verified for P2 (clicked P2Bot card → state.activeRobotId === 4002 via findBattleRobot). Visual screenshot captured." },
+      ],
       depends_on: ["twosides.deploy_picks_two_forces"],
       status: "pending",
       acceptance: "Visual: two header sections with color-distinct chrome (cyan vs red).",

@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.9 — 2026-06-05
+v0.0.10 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.10** (2026-06-05): Battle overview now color-codes the two
+  sides — YOUR FORCE header + robot cards get a cyan left-border
+  accent, OPPONENT FORCE gets red. Tap-to-detail works on either
+  side via `findBattleRobot`.
 - **v0.0.9** (2026-06-05): P2 force can now join an existing battle.
   New "+ ADD OPPONENT FORCE" button on the battle overview opens a
   force picker (excluding the current P1 force AND any force that
