@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.5 — 2026-06-05
+v0.0.6 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.6** (2026-06-05): ActionResolveDialog now shows a pilot
+  picker for SALVO / CHARGE / MELEE_ASSAULT / HEAT_VENT and routes
+  +1 Pilot Strain to the chosen cockpit pilot on RESOLVE (HEAT_VENT
+  is Free per rulebook — picker just identifies the rolling pilot).
+  PASS now correctly clears every cockpit's `pilotStrain` per the
+  rulebook. Composite-key picker identity survives reorders;
+  MANUAL escape-hatch preserved.
 - **v0.0.5** (2026-06-05): Cockpit assignments now visible on the
   per-robot battle screen. New PILOTS bucket renders between vitals
   and the action sheet, listing each cockpit's assigned pilot (or

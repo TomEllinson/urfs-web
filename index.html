@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.5 (2026-06-05)
+  Version: 0.0.6 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -1268,6 +1268,8 @@ function defChipClass(def) {
   }
 }
 handlers["modal-close"] = () => {
+  // Reset pilot picker on any action-resolve cancel so stale picks don't bleed.
+  if (state.modal?.kind === "action-resolve") { _pickedPilot = null; }
   // Save form values back if editing a robot.
   if (state.modal?.kind === "robot-editor") {
     const r = state.robots.find(x => x.id === state.modal.data.id);
@@ -2092,22 +2094,34 @@ let renderActionResolve = function (rid, k) {
     <h2>${a.label.toUpperCase()}</h2>
     <p>${escapeHtml(a.brief)}</p>
     <p class="label-small label-amber">COST: ${escapeHtml(a.cost)}</p>
-    ${cockpits.length > 1 ? `
+    ${(() => {
+      if (!actionShowsPilotPicker(k)) return "";
+      const humanCockpits = cockpits.filter(c => !c.isAi);
+      if (humanCockpits.length === 0) return "";
+      // Auto-pick first human cockpit by composite key on first render
+      const firstKey = `${humanCockpits[0].componentId}:${humanCockpits[0].moduleIndex}:${humanCockpits[0].slotIndex}`;
+      if (_pickedPilot === null) { _pickedPilot = firstKey; }
+      return `
       <div class="label-small label-cyan" style="margin-top:10px">ACTING PILOT</div>
       <p style="font-size:12px; color:var(--on-surface-muted)">Strain auto-applies to picked pilot AND robot. MANUAL = resolve at the table.</p>
       <div id="pilot-pick-list">
-        ${cockpits.map((p, i) => `
-          <div class="card tight" data-act="pick-pilot" data-pilot="${i}">
-            <strong>${escapeHtml(p.name)}</strong>
-            <span class="chip muted" style="margin-left:8px">TOK ${p.tokens || 0}${p.mental ? "/" + p.mental : ""}</span>
-          </div>
-        `).join("")}
-        <div class="card tight" data-act="pick-pilot" data-pilot="MANUAL">
+        ${humanCockpits.map(cp => {
+          const key = `${cp.componentId}:${cp.moduleIndex}:${cp.slotIndex}`;
+          const pilot = (state.pilots || []).find(x => x.id === cp.pilotId);
+          const pilotName = pilot ? pilot.name : "unassigned";
+          const border = _pickedPilot === key ? "var(--cyan)" : "var(--surface-3)";
+          return `<div class="card tight" data-act="pick-pilot" data-pilot="${key}" style="border-color:${border}">
+            <strong>${escapeHtml(cp.slotName || "Cockpit")} — ${escapeHtml(pilotName)}</strong>
+            <span class="chip muted" style="margin-left:8px">P-STR ${cp.pilotStrain || 0}</span>
+          </div>`;
+        }).join("")}
+        <div class="card tight" data-act="pick-pilot" data-pilot="MANUAL" style="border-color:${_pickedPilot === "MANUAL" ? "var(--cyan)" : "var(--surface-3)"}">
           <strong>MANUAL</strong>
           <span style="font-size:11px; color:var(--on-surface-muted); margin-left:8px">I'll bump strain at the table</span>
         </div>
       </div>
-    ` : ""}
+      `;
+    })()}
     ${actionRollKind(k) ? `
       <button class="btn wide" style="margin-top:10px" data-act="open-roller" data-id="${rid}" data-k="${k}">🎲 OPEN DICE ROLLER</button>
       <div class="meta" style="font-size:10px; margin-top:2px; color:var(--on-surface-muted)">Shows the pool composition, available bonus chips, and lets you roll — doesn't auto-apply hits.</div>
@@ -2122,6 +2136,18 @@ let renderActionResolve = function (rid, k) {
     </div>
   `;
 };
+// Per spec: these four actions surface the pilot picker for pilot-strain routing.
+// (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
+function actionShowsPilotPicker(k) {
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT";
+}
+// Baseline pilot strain delta on RESOLVE.
+// SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
+// per-target multiplication ships with the per-target dice flow in stage 6.
+function actionPilotStrainCost(k) {
+  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT") return 1;
+  return 0; // HEAT_VENT cost is Free (Mental check); picker only routes identity
+}
 // Each action whose mechanics include rolling dice maps to a roll
 // kind that influences which bonus chips show in the roller.
 function actionRollKind(k) {
@@ -2147,8 +2173,7 @@ handlers["open-roller"] = ({ id, k }) => {
 };
 let _pickedPilot = null;
 handlers["pick-pilot"] = ({ pilot }) => {
-  _pickedPilot = pilot;
-  // Highlight choice
+  _pickedPilot = pilot; // composite key "componentId:moduleIndex:slotIndex" or "MANUAL"
   for (const el of document.querySelectorAll("#pilot-pick-list .card")) {
     el.style.borderColor = "var(--surface-3)";
   }
@@ -2165,9 +2190,9 @@ handlers["resolve-action"] = ({ id, k }) => {
   const isManual = _pickedPilot === "MANUAL";
   if (k === "PASS") {
     r.pilotTokens = 0;
-    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, tokens: 0 }));
+    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, pilotStrain: 0 }));
     state.activeBattle.priority = state.activeBattle.priority === "P1" ? "P2" : "P1";
-    showToast("PASSED.");
+    showToast("PASSED — pilot strain cleared.");
   } else if (k === "SHIELD_RECOVERY") {
     if (r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax) {
       r.capacitorsRemaining--;
@@ -2191,12 +2216,26 @@ handlers["resolve-action"] = ({ id, k }) => {
   } else if (!isManual) {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
-      if (_pickedPilot != null && _pickedPilot !== "MANUAL" && r.cockpitPilots[_pickedPilot]) {
-        r.cockpitPilots[_pickedPilot].tokens = (r.cockpitPilots[_pickedPilot].tokens || 0) + 1;
+      let pilotStrainMsg = "";
+      if (actionShowsPilotPicker(k)) {
+        const cost = actionPilotStrainCost(k);
+        if (cost > 0 && _pickedPilot && _pickedPilot !== "MANUAL") {
+          const cp = (r.cockpitPilots || []).find(c =>
+            `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
+          );
+          if (cp) {
+            cp.pilotStrain = (cp.pilotStrain || 0) + cost;
+            const pilot = (state.pilots || []).find(x => x.id === cp.pilotId);
+            const pilotName = pilot ? pilot.name : "pilot";
+            pilotStrainMsg = `, +1 PStrain (${pilotName})`;
+          }
+        }
       } else {
+        // Legacy path: non-picker primary/reaction actions bump pilotTokens
         r.pilotTokens = (r.pilotTokens || 0) + 1;
+        pilotStrainMsg = " +1 PStrain";
       }
-      showToast(`${a.label} — +1 SStrain +1 PStrain.`);
+      showToast(`${a.label} — +1 SStrain${pilotStrainMsg}.`);
     } else {
       showToast(`${a.label} — free incidental.`);
     }

@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.5",
+    current_version: "0.0.6",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -62,12 +62,17 @@
         { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: previous slice stored cockpitPilots nested on each BattleRobotState (per-robot) rather than flat at battle level. Keeping that shape — destruction cascades + display affordances are O(1) when nested. Spec text 'battle.cockpitPilots' read as 'somewhere on the battle object' rather than literal top-level key." },
         { when: "2026-06-05", who: "claude", note: "shipped in 0.0.5. Round-trip verified — generic export/import pipeline carries cockpitPilots through the battles store without code changes. renderCockpitPilots(r) added between vitals and action sheet on per-robot screen: cyan-accented PILOTS bucket with one row per cockpit (slot name + pilot name chip + rank · STR sysStrain/pilotStrain; AI Core slots show 'A.I. Core' chip; stale-id pilots show 'unassigned'). New CSS: .bucket.pilots .header (cyan), .bucket.pilots.open border-color, .header.static / .list-card.static cursor:default to remove false-affordance from non-clickable rows. 3 Playwright cases verified including round-trip + visual." },
       ],
+    },
     {
       id: "cockpit.pilot_picker_in_action_resolve",
       summary: "When an action needs strain routing (most Primary actions), ActionResolveDialog shows a pilot picker listing every cockpit pilot on this robot.",
       depends_on: ["cockpit.persist_in_battle_state"],
-      status: "pending",
+      status: "done",
       acceptance: "Salvo + Charge + Melee Assault + Heat Vent show pilot picker; RESOLVE routes the +1 P STRAIN to that pilot's pilotStrain.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. Plan: add pilot picker to ActionResolveDialog when action.pilotStrainCost > 0; on RESOLVE, mutate the chosen cockpitPilots entry's pilotStrain." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.6. New helpers actionShowsPilotPicker(k) {SALVO|CHARGE|MELEE_ASSAULT|HEAT_VENT} and actionPilotStrainCost(k) (1 for first three, 0 for HEAT_VENT — Mental check is Free). Picker rewritten to filter humanCockpits (skip AI), composite-key 'componentId:moduleIndex:slotIndex' identity (not array index), default-pick first human row with cyan-border highlight, MANUAL escape-hatch preserved. RESOLVE handler replaces stale .tokens reference with cockpitPilots.find().pilotStrain += cost; sysStrain unchanged (still bumps for primary/reaction bucket). PASS handler bug fixed: now clears pilotStrain on every cockpit pilot (per v0.0.1 README + rulebook, PASS clears Pilot Strain). DECISION_LOG: auto-default pick on first render is intentional UX (single-cockpit case saves a tap; multi-cockpit user sees cyan border on default + can tap to override). modal-close resets _pickedPilot to null to prevent cross-action leak. 7+1 Playwright cases verified including PASS→strain=0 round-trip." },
+      ],
     },
     {
       id: "cockpit.dice_chips_wake_up",
