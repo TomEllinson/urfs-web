@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.7",
+    current_version: "0.0.8",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -93,8 +93,12 @@
       id: "twosides.battle_state_two_forces",
       summary: "battle.forces = [{side:'P1', forceId, robotIds[]}, {side:'P2', forceId, robotIds[]}]. Migration: existing single-force battles become side='P1', P2 empty.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Old export JSON imports fine; new battles store both sides; per-robot screens still resolve correctly.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: existing webapp model already has battle.p1Robots[] + battle.p2Robots[] (p2 always [] for now) and battle.p1ForceName + battle.p2ForceName. Keeping this shape — it's structurally equivalent to the spec's battle.forces[] proposal. This iteration: add findBattleRobot(b, rid) lookup helper that searches both sides, ensure legacy battles get p2Robots:[] default on import, add p1ForceId for traceability." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.8. findBattleRobot(b, rid) helper added; 31 prior p1Robots.find() callsites refactored to use it (searches both p1 + p2). p1ForceId stored on deploy (next slice will read it for OPPONENT styling). renderBattleOverview now renders OPPONENT FORCE section when p2Robots.length > 0; solo battles unchanged. Legacy migration applied at BOTH ingress paths: init (load from IndexedDB) AND import-json — old battles missing p2Robots default to []. Playwright regression check: p1 lookup, p2 lookup, SALVO → pilotStrain++, p1ForceId set. Forward-prep: p1ForceId/p2ForceId are write-only until next slice; OPPONENT section uses neutral chrome (will get --red palette in twosides.battle_overview_both_sides)." },
+      ],
     },
     {
       id: "twosides.deploy_picks_two_forces",

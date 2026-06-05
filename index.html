@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.7 (2026-06-05)
+  Version: 0.0.8 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -1157,6 +1157,11 @@ handlers["import-json"] = () => {
       for (const key of ["robots","pilots","equipment","forces","battles"]) {
         const list = payload[key] || [];
         for (const row of list) {
+          // Normalize legacy battles missing two-forces fields.
+          if (key === "battles") {
+            row.p1Robots = row.p1Robots || [];
+            row.p2Robots = row.p2Robots || [];
+          }
           // Re-key any rows that would collide on merge — generate a fresh id.
           if (merge && sets[key].some(x => x.id === row.id)) {
             row.id = Date.now() + Math.floor(Math.random() * 100000);
@@ -1786,7 +1791,9 @@ function deployForceWithAssignments(f, assignments) {
     round: 1,
     priority: "P1",
     p1ForceName: f.name,
+    p1ForceId: f.id,
     p2ForceName: "Opponent",
+    p2ForceId: null,
     p1Robots: f.robotIds.map(rid => {
       const robot = state.robots.find(r => r.id === rid);
       const bs = buildBattleRobotState(robot, "P1");
@@ -1864,6 +1871,14 @@ function renderBattleOverview(b) {
       </div>
     </div>
     ${b.p1Robots.map(r => robotOverviewCard(r)).join("")}
+    ${(b.p2Robots && b.p2Robots.length > 0) ? `
+    <div class="card row-between" style="margin-top:10px">
+      <div>
+        <div class="label-small">OPPONENT FORCE</div>
+        <strong>${escapeHtml(b.p2ForceName || "Opponent")}</strong>
+      </div>
+    </div>
+    ${b.p2Robots.map(r => robotOverviewCard(r)).join("")}` : ""}
     <div class="row-gap" style="margin-top:14px">
       <button class="btn amber wide" data-act="pass-priority">PASS PRIORITY</button>
     </div>
@@ -1918,6 +1933,13 @@ function calcEffectiveSilBattle(r) {
   if ((r.statusEffects || []).includes("CROUCHED")) s = Math.ceil(s / 2);
   return s;
 }
+function findBattleRobot(b, rid) {
+  // Either id type may be string or number depending on call site.
+  const n = Number(rid);
+  const p1 = (b?.p1Robots || []).find(x => x.robotId === n || x.robotId === rid);
+  if (p1) return p1;
+  return (b?.p2Robots || []).find(x => x.robotId === n || x.robotId === rid);
+}
 handlers["pass-priority"] = () => {
   const b = state.activeBattle;
   b.priority = b.priority === "P1" ? "P2" : "P1";
@@ -1950,7 +1972,7 @@ handlers["open-robot"] = ({ id }) => {
 // PER-ROBOT BATTLE — VitalsPanel, action sheet, components map
 // ════════════════════════════════════════════════════════════════════
 function renderPerRobotBattle(b, rid) {
-  const r = b.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(b, rid);
   if (!r) return `<p>Robot ${rid} not found.</p>`;
   const armorCurrent = r.components.reduce((a, c) => a + c.hpCurrent, 0);
   const armorMax = r.components.reduce((a, c) => a + c.hpMax, 0);
@@ -2070,7 +2092,7 @@ function renderComponentMap(r) {
 function defAbbr(d) { return ({ CORE:"COR", HEAD:"HEA", ARM:"ARM", LEG:"LEG", UTILITY:"UTL" })[d] || d.slice(0,3); }
 handlers["back-overview"] = () => { state.activeRobotId = null; render(); };
 handlers["reset-armor"] = ({ id }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   if (!r) return;
   for (const c of r.components) { c.hpCurrent = c.hpMax; c.isDestroyed = false; }
   dbPut("battles", state.activeBattle);
@@ -2086,7 +2108,7 @@ handlers["open-action"] = ({ id, k }) => {
   pushModal("action-resolve", { id: Number(id), k });
 };
 let renderActionResolve = function (rid, k) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   const a = ACTIONS[k];
   if (!r || !a) return "<p>?</p>";
   const cockpits = r.cockpitPilots || [];
@@ -2181,7 +2203,7 @@ handlers["pick-pilot"] = ({ pilot }) => {
   if (target) target.style.borderColor = "var(--cyan)";
 };
 handlers["resolve-action"] = ({ id, k }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const a = ACTIONS[k];
   if (!r || !a) return;
   // Apply mechanical effect — at minimum bump strain per action's cost line.
@@ -2318,7 +2340,7 @@ function rollerComputeChips(r, rollKind) {
   return chips;
 }
 let renderDiceRoller = function (rid, k) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   if (!r) return "<p>?</p>";
   const rollKind = k ? actionRollKind(k) : "GENERIC";
   const chips = rollKind ? rollerComputeChips(r, rollKind) : [];
@@ -2397,7 +2419,7 @@ handlers["roller-toggle-chip"] = ({ id }) => {
   pushModal("dice-roller", state.modal.data);
 };
 handlers["roller-roll"] = () => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === state.modal.data.id);
+  const r = findBattleRobot(state.activeBattle, state.modal.data.id);
   const rollKind = state.modal.data.k ? actionRollKind(state.modal.data.k) : "GENERIC";
   const chips = rollKind && r ? rollerComputeChips(r, rollKind) : [];
   const chipDice = chips.filter(c => _roller.chips[c.id]).reduce((s, c) => s + (c.dice || 0), 0);
@@ -2431,21 +2453,21 @@ handlers["show-move"] = ({ id }) => pushModal("move-dialog", { id: Number(id) })
 handlers["status-picker"] = ({ id }) => pushModal("status-picker", { id: Number(id) });
 
 let renderStrainDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   return stepperDialog("SYSTEM STRAIN",
     `${r.systemStrain} / ${r.systemStrainThreshold}`,
     "Robot-wide. +1 per action; clears via Heat Vent or a Capacitor spend.",
     "strain", rid);
 };
 handlers["bump-strain"] = ({ id, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.systemStrain = Math.max(0, r.systemStrain + parseInt(d, 10));
   dbPut("battles", state.activeBattle);
   pushModal("strain-dialog", { id: Number(id) });
 };
 
 let renderPilotsDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   const cockpits = r.cockpitPilots || [];
   if (cockpits.length === 0) {
     // fall back to robot-level tokens
@@ -2473,13 +2495,13 @@ let renderPilotsDialog = function (rid) {
   `;
 };
 handlers["bump-tokens"] = ({ id, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.pilotTokens = Math.max(0, r.pilotTokens + parseInt(d, 10));
   dbPut("battles", state.activeBattle);
   pushModal("pilots-dialog", { id: Number(id) });
 };
 handlers["bump-pilot-tok"] = ({ id, p, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const target = r.cockpitPilots[parseInt(p, 10)];
   if (!target) return;
   target.tokens = Math.max(0, (target.tokens || 0) + parseInt(d, 10));
@@ -2488,7 +2510,7 @@ handlers["bump-pilot-tok"] = ({ id, p, d }) => {
 };
 
 let renderShieldsDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   return `
     <h2>SHIELDS</h2>
     <p>Whole-robot shield pool. Absorbs damage before any component takes a hit. Recovery: spend 1 capacitor for +10 (rulebook L417).</p>
@@ -2504,13 +2526,13 @@ let renderShieldsDialog = function (rid) {
   `;
 };
 handlers["bump-shields"] = ({ id, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.shieldsCurrent = Math.max(0, Math.min(r.shieldsMax, r.shieldsCurrent + parseInt(d, 10)));
   dbPut("battles", state.activeBattle);
   pushModal("shields-dialog", { id: Number(id) });
 };
 handlers["recover-shields"] = ({ id }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   if (r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax) {
     r.capacitorsRemaining--;
     r.shieldsCurrent = Math.min(r.shieldsMax, r.shieldsCurrent + 10);
@@ -2520,7 +2542,7 @@ handlers["recover-shields"] = ({ id }) => {
 };
 
 let renderCapDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   return `
     <h2>CAPACITORS — ${r.capacitorsRemaining} left</h2>
     <p>+1 die per remaining cap to Shutdown checks. Spend 1 to recover 10 Shields OR remove 1 SStrain (rulebook L417-420).</p>
@@ -2539,13 +2561,13 @@ let renderCapDialog = function (rid) {
   `;
 };
 handlers["bump-cap"] = ({ id, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.capacitorsRemaining = Math.max(0, r.capacitorsRemaining + parseInt(d, 10));
   dbPut("battles", state.activeBattle);
   pushModal("cap-dialog", { id: Number(id) });
 };
 handlers["spend-cap-strain"] = ({ id }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   if (r.capacitorsRemaining > 0 && r.systemStrain > 0) {
     r.capacitorsRemaining--; r.systemStrain--;
     dbPut("battles", state.activeBattle);
@@ -2554,7 +2576,7 @@ handlers["spend-cap-strain"] = ({ id }) => {
 };
 
 let renderFuelDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   return `
     <h2>FUEL</h2>
     <p>Spent on Boost actions.</p>
@@ -2567,14 +2589,14 @@ let renderFuelDialog = function (rid) {
   `;
 };
 handlers["bump-fuel"] = ({ id, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.fuelCurrent = Math.max(0, Math.min(r.fuelMax, r.fuelCurrent + parseInt(d, 10)));
   dbPut("battles", state.activeBattle);
   pushModal("fuel-dialog", { id: Number(id) });
 };
 
 let renderArmorDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   return `
     <h2>ARMOR</h2>
     <p>Per-component armor. Tap a component tile on the schematic to take or repair damage.</p>
@@ -2590,7 +2612,7 @@ let renderArmorDialog = function (rid) {
   `;
 };
 let renderMoveDialog = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   const boostDraw = r.boostPower > 0 ? Math.ceil(r.robotWeight / r.boostPower) : 0;
   return `
     <h2>MOVEMENT</h2>
@@ -2604,7 +2626,7 @@ let renderMoveDialog = function (rid) {
 
 const STATUSES = ["STANDING","CROUCHED","FLYING","GRAPPLED"];
 let renderStatusPicker = function (rid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   return `
     <h2>SET STATUS</h2>
     <p>Player-controlled canonical status. DOWN / SHUTDOWN are gameplay-set.</p>
@@ -2620,14 +2642,14 @@ let renderStatusPicker = function (rid) {
 };
 const CANONICAL_STATUSES = ["STANDING","CROUCHED","FLYING","DOWN","SHUTDOWN","GRAPPLED"];
 handlers["set-status"] = ({ id, s }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.statusEffects = (r.statusEffects || []).filter(e => !CANONICAL_STATUSES.includes(e));
   if (s !== "STANDING") r.statusEffects.push(s);
   dbPut("battles", state.activeBattle);
   closeModal();
 };
 handlers["clear-status"] = ({ id }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   r.statusEffects = (r.statusEffects || []).filter(e => !CANONICAL_STATUSES.includes(e));
   dbPut("battles", state.activeBattle);
   closeModal();
@@ -2637,7 +2659,7 @@ handlers["open-comp"] = ({ id, cid }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
 let renderCompSheet = function (rid, cid) {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === rid);
+  const r = findBattleRobot(state.activeBattle, rid);
   const c = r?.components.find(x => x.componentId === cid);
   if (!c) return "<p>?</p>";
   return `
@@ -2697,7 +2719,7 @@ let renderCompSheet = function (rid, cid) {
   `;
 };
 handlers["bump-comp-hp"] = ({ id, cid, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const c = r.components.find(x => x.componentId === Number(cid));
   if (!c) return;
   c.hpCurrent = Math.max(0, Math.min(c.hpMax, c.hpCurrent + parseInt(d, 10)));
@@ -2706,7 +2728,7 @@ handlers["bump-comp-hp"] = ({ id, cid, d }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
 handlers["repair-comp"] = ({ id, cid }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const c = r.components.find(x => x.componentId === Number(cid));
   if (!c) return;
   c.hpCurrent = c.hpMax;
@@ -2715,7 +2737,7 @@ handlers["repair-comp"] = ({ id, cid }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
 handlers["restore-comp"] = ({ id, cid }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const c = r.components.find(x => x.componentId === Number(cid));
   if (!c) return;
   c.isDestroyed = false;
@@ -2724,7 +2746,7 @@ handlers["restore-comp"] = ({ id, cid }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
 handlers["toggle-mod"] = ({ id, cid, mi }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const c = r.components.find(x => x.componentId === Number(cid));
   if (!c) return;
   const m = c.modules[parseInt(mi, 10)];
@@ -2733,7 +2755,7 @@ handlers["toggle-mod"] = ({ id, cid, mi }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
 handlers["bump-eq-arm"] = ({ id, cid, ei, d }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const c = r.components.find(x => x.componentId === Number(cid));
   const e = c?.equipment[parseInt(ei, 10)];
   if (!e) return;
@@ -2742,7 +2764,7 @@ handlers["bump-eq-arm"] = ({ id, cid, ei, d }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
 handlers["repair-eq"] = ({ id, cid, ei }) => {
-  const r = state.activeBattle.p1Robots.find(x => x.robotId === Number(id));
+  const r = findBattleRobot(state.activeBattle, id);
   const c = r.components.find(x => x.componentId === Number(cid));
   const e = c?.equipment[parseInt(ei, 10)];
   if (!e) return;
@@ -3176,6 +3198,11 @@ async function init() {
   ]);
   state.robots = robots; state.pilots = pilots; state.equipment = equipment;
   state.forces = forces; state.battles = battles;
+  // Normalize legacy battles that predate two-forces schema.
+  for (const b of battles) {
+    b.p1Robots = b.p1Robots || [];
+    b.p2Robots = b.p2Robots || [];
+  }
   // If there's a single active battle, resume it.
   if (battles.length === 1) state.activeBattle = battles[0];
   render();

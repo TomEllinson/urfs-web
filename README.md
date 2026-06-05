@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.7 — 2026-06-05
+v0.0.8 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.8** (2026-06-05): Battle state foundation for two-sided
+  combat. New `findBattleRobot(b, rid)` helper searches BOTH
+  `p1Robots[]` and `p2Robots[]`; 31 prior lookups refactored to
+  use it. Legacy battles auto-migrate (`p2Robots: []` default on
+  load + import). Battle overview now renders an OPPONENT FORCE
+  section when p2 is populated; solo battles unchanged. Sets up
+  the P2 deploy + priority handoff slices.
 - **v0.0.7** (2026-06-05): Pilot talent chips wake up in the dice
   roller. With a Sharpshooter pilot bound to a cockpit and SALVO
   open, the "+3 SHARPSHOOTER" chip now appears and toggles in
