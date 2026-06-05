@@ -1,0 +1,369 @@
+// ────────────────────────────────────────────────────────────────────
+// URFS Web — full-port spec
+//
+// Source of truth for the webapp's "no gaps" build-out. Each iteration
+// of /loop /urfs-webapp-iterate picks the next pending item, ships it,
+// bumps the version, updates the README changelog, commits.
+//
+// Status values: pending | in_progress | done | blocked
+// Version scheme: 0.0.N pre-release. Each item shipped bumps N.
+//
+// Rules: webapp is single-file (index.html). All code goes there.
+// IndexedDB shape MUST stay compatible with the Android RobotEntity /
+// ComponentEntity / ModuleInstance / BattleState so a future Android
+// importer can read the JSON export round-trip.
+// ────────────────────────────────────────────────────────────────────
+{
+  meta: {
+    repo: "/home/tom/software_projects/urfs/webapp",
+    file: "index.html",
+    branch: "master",
+    current_version: "0.0.2",
+    rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
+    revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
+    android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
+    constraint_single_file: true,
+    note: "Android side already implements everything here. Port the algorithm, don't redesign.",
+  },
+
+  // ── Stage 1: bind pilots to cockpit slots at deploy ────────────────
+  // Unblocks the dice-roller pilot-talent chips (Sharpshooter, Deadeye,
+  // Brawler) AND the action-resolve strain routing.
+  stage_1_cockpit_binding: [
+    {
+      id: "cockpit.collect_slots_from_robot",
+      summary: "Derive cockpit slot count per robot from its components (modules with definitionLimit COCKPIT). Adapter only — no UI.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "robotCockpitSlots(r) returns array of {componentId, slotName} for every cockpit-bearing module instance.",
+    },
+    {
+      id: "cockpit.deploy_step_assign_pilots",
+      summary: "Force deploy flow: after picking robots, show a pilot-assignment step. One picker per cockpit slot. Validates: no double-booking pilots across slots.",
+      depends_on: ["cockpit.collect_slots_from_robot"],
+      status: "pending",
+      acceptance: "Deploying a force with N cockpit-bearing mechs prompts N×slots pilot pickers; cancel returns to robot picker; confirm stores assignments on battle.cockpitPilots[].",
+    },
+    {
+      id: "cockpit.persist_in_battle_state",
+      summary: "battle.cockpitPilots = [{robotId, componentId, slotIndex, pilotId, sysStrain:0, pilotStrain:0}]. Survives IndexedDB round-trip.",
+      depends_on: ["cockpit.deploy_step_assign_pilots"],
+      status: "pending",
+      acceptance: "Export JSON includes cockpitPilots[]; import restores them; per-robot screen reads them.",
+    },
+    {
+      id: "cockpit.pilot_picker_in_action_resolve",
+      summary: "When an action needs strain routing (most Primary actions), ActionResolveDialog shows a pilot picker listing every cockpit pilot on this robot.",
+      depends_on: ["cockpit.persist_in_battle_state"],
+      status: "pending",
+      acceptance: "Salvo + Charge + Melee Assault + Heat Vent show pilot picker; RESOLVE routes the +1 P STRAIN to that pilot's pilotStrain.",
+    },
+    {
+      id: "cockpit.dice_chips_wake_up",
+      summary: "Dice roller chip catalog: enumerate the cockpit pilots on this robot and surface their talent chips (Sharpshooter for ranged, Deadeye for ranged, Brawler for melee, etc.).",
+      depends_on: ["cockpit.persist_in_battle_state"],
+      status: "pending",
+      acceptance: "Open dice roller for SALVO with a Sharpshooter pilot bound → Sharpshooter chip appears, togglable, +1 die when active.",
+    },
+  ],
+
+  // ── Stage 2: two-sided combat (P2 force + priority handoff) ────────
+  stage_2_two_sides: [
+    {
+      id: "twosides.battle_state_two_forces",
+      summary: "battle.forces = [{side:'P1', forceId, robotIds[]}, {side:'P2', forceId, robotIds[]}]. Migration: existing single-force battles become side='P1', P2 empty.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Old export JSON imports fine; new battles store both sides; per-robot screens still resolve correctly.",
+    },
+    {
+      id: "twosides.deploy_picks_two_forces",
+      summary: "Deploy flow asks: P1 force + P2 force (optional). If P2 omitted, default-empty (skirmish/solo).",
+      depends_on: ["twosides.battle_state_two_forces"],
+      status: "pending",
+      acceptance: "Deploy 2 forces → battle has 6 robot cards in two sections (YOUR / OPPONENT).",
+    },
+    {
+      id: "twosides.battle_overview_both_sides",
+      summary: "Battle overview renders YOUR FORCE and OPPONENT FORCE sections, each with their robot cards. Tap-to-detail works on either side.",
+      depends_on: ["twosides.deploy_picks_two_forces"],
+      status: "pending",
+      acceptance: "Visual: two header sections with color-distinct chrome (cyan vs red).",
+    },
+    {
+      id: "twosides.priority_handoff",
+      summary: "Round tracker shows current priority holder (P1 or P2). PASS PRIORITY button hands off to the other side. After both have passed, end of round.",
+      depends_on: ["twosides.battle_overview_both_sides"],
+      status: "pending",
+      acceptance: "Round 1 → P1 has priority → P1 PASS → P2 has priority → P2 PASS → Round 2 begins.",
+    },
+  ],
+
+  // ── Stage 3: action budget + round state machine ──────────────────
+  stage_3_action_budget: [
+    {
+      id: "budget.per_robot_action_pool",
+      summary: "Per-robot per-round: 1 Primary, 2 Reactions, ∞ Incidentals. State held on battle.robotState[robotId] = {primaryUsed, reactionsUsed, incidentalsUsed}.",
+      depends_on: ["twosides.priority_handoff"],
+      status: "pending",
+      acceptance: "Spending an action increments the right counter; state persists on save/restore.",
+    },
+    {
+      id: "budget.disable_spent_actions",
+      summary: "ActionResolveDialog: if a Primary was already used this round, all Primary actions render dimmed + disabled. Same for 2 Reactions used.",
+      depends_on: ["budget.per_robot_action_pool"],
+      status: "pending",
+      acceptance: "After Salvo resolves, every Primary action in the list is unselectable until end of round.",
+    },
+    {
+      id: "budget.actions_this_round_panel",
+      summary: "Per-robot screen: ACTIONS THIS ROUND chip row: P:1/1, R:0/2, I:3. Color when at-cap.",
+      depends_on: ["budget.per_robot_action_pool"],
+      status: "pending",
+      acceptance: "Visual chips that mirror rulebook caps.",
+    },
+    {
+      id: "budget.end_of_round_refresh",
+      summary: "End-of-round button: refresh all robots' budgets, increment round counter, tick strain recovery if rules allow, fire +1 capacitor.",
+      depends_on: ["budget.actions_this_round_panel"],
+      status: "pending",
+      acceptance: "Round 2 begins → every robot back to P:0/1, R:0/2, I:0; +1 capacitor on robots that don't override.",
+    },
+  ],
+
+  // ── Stage 4: damage pipeline (buffer → frame save → cascade) ──────
+  // This is the marathon. Port from android SchematicBattleViewModel +
+  // FrameSaveResolver + DestructionCascade.
+  stage_4_damage_pipeline: [
+    {
+      id: "damage.apply_damage_dialog",
+      summary: "New APPLY DAMAGE button on per-robot screen. Target component picker + damage-amount input + type (kinetic/energy/etc).",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Opens a dialog; on submit, calls applyDamage(robotId, componentId, amount, type).",
+    },
+    {
+      id: "damage.buffer_absorbs_first",
+      summary: "applyDamage: subtract from component.armor first (down to 0). Overflow = breach. No frame save if armor absorbed everything.",
+      depends_on: ["damage.apply_damage_dialog"],
+      status: "pending",
+      acceptance: "Component with armor 5, take 3 damage → armor=2, no save prompt. Take 7 damage → armor=0, save prompted on 2 breach.",
+    },
+    {
+      id: "damage.frame_save_dialog",
+      summary: "On breach: dialog showing FD d6 vs 7-FM+ threshold. Roll button. Result decides if breach lands.",
+      depends_on: ["damage.buffer_absorbs_first"],
+      status: "pending",
+      acceptance: "FD=2, FM=3 → roll 2 d6 vs 4+. Show dice, count hits. Hits ≥ 1 = save succeeds, breach is absorbed.",
+    },
+    {
+      id: "damage.breach_applies_hp_loss",
+      summary: "Failed save → component.hpCurrent -= breach. If hpCurrent ≤ 0 → component.isDestroyed = true, trigger cascade.",
+      depends_on: ["damage.frame_save_dialog"],
+      status: "pending",
+      acceptance: "Take 10 to a 4-HP component with 0 armor and failed save → component destroyed, cascade fires.",
+    },
+    {
+      id: "damage.destruction_cascade",
+      summary: "Cascade per Android: stowed children destroyed, fuel-tank components spill (collateral), equipment-grabber components drop equipment.",
+      depends_on: ["damage.breach_applies_hp_loss"],
+      status: "pending",
+      acceptance: "Destroy a host with 3 stowed components → all 3 marked destroyed; destroy a fuel tank → adjacent components take spill damage per rulebook.",
+    },
+    {
+      id: "damage.recompute_derived_stats",
+      summary: "After any destruction: recomputeShieldsMax, recomputeCapacitorPool, enforceAuxReactorDependency, refreshPowerAndCheck, recomputeStrainThreshold. Port from Android.",
+      depends_on: ["damage.destruction_cascade"],
+      status: "pending",
+      acceptance: "Destroying the shields module zeros the SHLD max; destroying aux reactor disables dependent modules.",
+    },
+    {
+      id: "damage.undo_restore_in_combat",
+      summary: "Port restoreComponent from Android alpha.356: UNDO·RESTORE button on destroyed-component overlay clears flag, restores HP, re-runs recompute helpers.",
+      depends_on: ["damage.recompute_derived_stats"],
+      status: "pending",
+      acceptance: "Misclick destroy → tap UNDO·RESTORE → component back to full HP, derived stats snap back.",
+    },
+  ],
+
+  // ── Stage 5: strain effects (Shutdown reboot, Pilot KO, etc.) ─────
+  stage_5_strain_effects: [
+    {
+      id: "strain.shutdown_threshold_check",
+      summary: "When sysStrain reaches strainThreshold (default 6), prompt Shutdown reboot test on this robot's next action attempt.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Bump sysStrain to 6 → next action click shows Shutdown overlay before resolving.",
+    },
+    {
+      id: "strain.shutdown_reboot_test",
+      summary: "Shutdown overlay: roll FD d6 vs 5+ to reboot. Fail → Shutdown stays until next round (skip turn).",
+      depends_on: ["strain.shutdown_threshold_check"],
+      status: "pending",
+      acceptance: "Roll dialog with FD dice; success = sysStrain -= 3 and Shutdown cleared; fail = robot.shutdown=true.",
+    },
+    {
+      id: "strain.pilot_knockout_threshold",
+      summary: "Per-pilot Pilot Strain threshold (5 + training). At threshold: KO. KO removes pilot from cockpit until first aid.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Pilot at 5 strain with training 0 → KO overlay; remove from cockpit slot.",
+    },
+    {
+      id: "strain.strain_clear_action",
+      summary: "Verify Strain Clear incidental: spend 1 capacitor, reduce 1 system strain. Already wired? Port if not.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Resolving Strain Clear with cap≥1: cap -= 1, sysStrain -= 1.",
+    },
+    {
+      id: "strain.heat_vent_reaction",
+      summary: "Heat Vent: spend a Reaction, roll Mental check, on success remove 2 sysStrain. Wires through ActionResolveDialog.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Heat Vent → pilot picker → roll Mental → on hit, sysStrain -= 2 and reaction budget incremented.",
+    },
+  ],
+
+  // ── Stage 6: action-specific dice flows ───────────────────────────
+  stage_6_action_dice_flows: [
+    {
+      id: "dice.salvo_per_target_plus_mental",
+      summary: "Salvo: per-target ranged attack roll. If targets > Mental, an extra Mental check. Each target receives one token.",
+      depends_on: ["cockpit.dice_chips_wake_up"],
+      status: "pending",
+      acceptance: "Pick 3 targets with Mental 2 → 3 ranged rolls + 1 Mental check; tokens land on each target.",
+    },
+    {
+      id: "dice.charge_move_plus_melee",
+      summary: "Charge: ½ GSPD move + melee attack roll. Resolve dice as melee attack.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Charge → distance picker → ½ GSPD spent → melee roll dice.",
+    },
+    {
+      id: "dice.strafe_move_plus_ranged",
+      summary: "Strafe: ½ GSPD move + per-target ranged. Tokens like Salvo.",
+      depends_on: ["dice.salvo_per_target_plus_mental"],
+      status: "pending",
+      acceptance: "Strafe → move + ranged-roll-per-target.",
+    },
+    {
+      id: "dice.melee_assault_all_weapons",
+      summary: "Melee Assault: one melee roll using every melee weapon. One token per weapon used.",
+      depends_on: ["dice.charge_move_plus_melee"],
+      status: "pending",
+      acceptance: "Resolves at robot's melee skill, weapons present in equipped list.",
+    },
+    {
+      id: "dice.hip_shot_reaction",
+      summary: "Hip Shot: reaction, single ranged at attacker. Threshold tweak per rulebook.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Available only as reaction; rolls ranged at attacker.",
+    },
+    {
+      id: "dice.quick_strike_reaction",
+      summary: "Quick Strike: reaction, single melee. Resolves after attacker.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Same surface as Hip Shot but melee.",
+    },
+    {
+      id: "dice.parry_threshold_reduce",
+      summary: "Parry: reaction. Reduces incoming melee hit threshold by 1.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Parry mid-resolve subtracts 1 hit from the attacker's roll.",
+    },
+    {
+      id: "dice.boost_dodge_fuel",
+      summary: "Boost Dodge: reaction, dodge + reduce inertia. Costs fuel.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Spend fuel, +1 die on dodge.",
+    },
+  ],
+
+  // ── Stage 7: modules + capacitor + equipment ──────────────────────
+  stage_7_modules_caps_equipment: [
+    {
+      id: "modules.toggle_costs_and_reqs",
+      summary: "Module toggle (on/off) validates: fuel ≥ cost, power available. Persists active state.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Toggle a fuel-cost-2 module with fuel=1 → toast: 'not enough fuel'.",
+    },
+    {
+      id: "modules.capacitor_pool",
+      summary: "Capacitor (CAP) pool: +1 per round, spendable by Shield Recovery (+10 SHLD), Strain Clear (-1 STR), etc.",
+      depends_on: ["budget.end_of_round_refresh"],
+      status: "pending",
+      acceptance: "Round advances → CAP +=1 (cap=max-of-capacitor-modules). Shield Recovery action spends 1.",
+    },
+    {
+      id: "equipment.hp_track",
+      summary: "Equipment.hpCurrent / hpMax. Take damage → reduce. At 0 → broken (visually struck, unequipped).",
+      depends_on: ["damage.recompute_derived_stats"],
+      status: "pending",
+      acceptance: "Damage equipment in component sheet → HP reduces; at 0, broken chip.",
+    },
+    {
+      id: "equipment.mount_swap",
+      summary: "Mount-Point keyword equipment can be swapped at deploy. After battle starts, no swap unless Grab/Drop.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Editor allows mount swap; battle locks it.",
+    },
+  ],
+
+  // ── Stage 8: positioning + status conditions ──────────────────────
+  stage_8_positioning_status: [
+    {
+      id: "positioning.gspd_tracking",
+      summary: "Track GSPD spent per round. Move action deducts. Boost increases. Decelerate reduces inertia.",
+      depends_on: ["budget.per_robot_action_pool"],
+      status: "pending",
+      acceptance: "GSPD chip shows X/Y remaining; spending Move dialogs prompt amount; deducts.",
+    },
+    {
+      id: "positioning.pivot_facing",
+      summary: "Pivot action: change robot.facing by up to 90° (180° if flying off-vector-lock). Persists on robot.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Pivot dialog → facing dropdown → save → battle state reflects new facing.",
+    },
+    {
+      id: "status.crouched_ranged_bonus",
+      summary: "CROUCHED status: +2 dice when ranged-attacking from cover.",
+      depends_on: ["dice.salvo_per_target_plus_mental"],
+      status: "pending",
+      acceptance: "CROUCHED chip in dice roller adds +2 dice.",
+    },
+    {
+      id: "status.grappling_grab_break",
+      summary: "Grab action: become grappler; target gains GRAPPLED status. Break Free: roll to escape.",
+      depends_on: [],
+      status: "pending",
+      acceptance: "Grab target → both robots show grapple icon; Break Free rolls; on success, GRAPPLED cleared.",
+    },
+    {
+      id: "status.flying_vector_lock",
+      summary: "FLYING status: vector lock (facing locked unless off-vector pivot). Falling on KO.",
+      depends_on: ["positioning.pivot_facing"],
+      status: "pending",
+      acceptance: "FLYING robot can't pivot without off-vector flag; KO triggers fall.",
+    },
+  ],
+
+  // ── Open decisions / blockers Tom should answer ────────────────────
+  spec_todo: [
+    "DECISION: should P2 force be playable by a second human at the same device (pass-and-play), or just a 'GM controlled' tracker? Default to pass-and-play.",
+    "DECISION: damage type matters for some modules (Energy-Reflective absorbs Energy). Worth porting per-keyword damage interaction in stage 4 or defer to a future stage 9?",
+    "DECISION: 3D schematic is officially out of scope ('glitter'). Confirm no stage 9 for it.",
+  ],
+
+  history: [
+    { when: "2026-06-04", who: "claude", note: "Spec created. v0.0.2 baseline. Stages 1–8 organized." },
+  ],
+}
