@@ -151,24 +151,17 @@
     },
     {
       id: "damage.frame_save_dialog",
-      summary: "On breach: dialog showing FD d6 vs 7-FM+ threshold. Roll button. Result decides if breach lands.",
+      summary: "On breach: dialog showing FD d6 vs 7-FM+ threshold. Roll button. Outcome is binary: save success → component intact; save fail → component destroyed (no HP loss — components have no HP stat per rulebook).",
       depends_on: ["damage.buffer_absorbs_first"],
       status: "pending",
-      acceptance: "FD=2, FM=3 → roll 2 d6 vs 4+. Show dice, count hits. Hits ≥ 1 = save succeeds, breach is absorbed.",
-    },
-    {
-      id: "damage.breach_applies_hp_loss",
-      summary: "Failed save → component.hpCurrent -= breach. If hpCurrent ≤ 0 → component.isDestroyed = true, trigger cascade.",
-      depends_on: ["damage.frame_save_dialog"],
-      status: "pending",
-      acceptance: "Take 10 to a 4-HP component with 0 armor and failed save → component destroyed, cascade fires.",
+      acceptance: "FD=2, FM=3 → roll 2 d6 vs 4+. Show dice, count hits. Hits ≥ 1 = save succeeds, breach absorbed. Hits = 0 = component is destroyed (binary).",
     },
     {
       id: "damage.destruction_cascade",
-      summary: "Cascade per Android: stowed children destroyed, fuel-tank components spill (collateral), equipment-grabber components drop equipment.",
-      depends_on: ["damage.breach_applies_hp_loss"],
+      summary: "Failed save → component.isDestroyed = true → cascade per Android: stowed children destroyed, fuel-tank components spill (collateral), equipment-grabber components drop equipment.",
+      depends_on: ["damage.frame_save_dialog"],
       status: "pending",
-      acceptance: "Destroy a host with 3 stowed components → all 3 marked destroyed; destroy a fuel tank → adjacent components take spill damage per rulebook.",
+      acceptance: "Failed save destroys component; destroy a host with 3 stowed components → all 3 marked destroyed; destroy a fuel tank → adjacent components take spill damage per rulebook.",
     },
     {
       id: "damage.recompute_derived_stats",
@@ -365,5 +358,6 @@
 
   history: [
     { when: "2026-06-04", who: "claude", note: "Spec created. v0.0.2 baseline. Stages 1–8 organized." },
+    { when: "2026-06-04", who: "claude", note: "RULEBOOK NOTE: components have no HP stat. Buffer = Armor (module-derived). Damage > armor → Frame Save (FD d6 at 7-FM+). Fail = destroyed (binary). Memory: urfs_frame_durability_is_save_dice_not_hp." },
   ],
 }
