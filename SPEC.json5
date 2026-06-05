@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.4",
+    current_version: "0.0.5",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -56,9 +56,12 @@
       id: "cockpit.persist_in_battle_state",
       summary: "battle.cockpitPilots = [{robotId, componentId, slotIndex, pilotId, sysStrain:0, pilotStrain:0}]. Survives IndexedDB round-trip.",
       depends_on: ["cockpit.deploy_step_assign_pilots"],
-      status: "pending",
+      status: "done",
       acceptance: "Export JSON includes cockpitPilots[]; import restores them; per-robot screen reads them.",
-    },
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: previous slice stored cockpitPilots nested on each BattleRobotState (per-robot) rather than flat at battle level. Keeping that shape — destruction cascades + display affordances are O(1) when nested. Spec text 'battle.cockpitPilots' read as 'somewhere on the battle object' rather than literal top-level key." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.5. Round-trip verified — generic export/import pipeline carries cockpitPilots through the battles store without code changes. renderCockpitPilots(r) added between vitals and action sheet on per-robot screen: cyan-accented PILOTS bucket with one row per cockpit (slot name + pilot name chip + rank · STR sysStrain/pilotStrain; AI Core slots show 'A.I. Core' chip; stale-id pilots show 'unassigned'). New CSS: .bucket.pilots .header (cyan), .bucket.pilots.open border-color, .header.static / .list-card.static cursor:default to remove false-affordance from non-clickable rows. 3 Playwright cases verified including round-trip + visual." },
+      ],
     {
       id: "cockpit.pilot_picker_in_action_resolve",
       summary: "When an action needs strain routing (most Primary actions), ActionResolveDialog shows a pilot picker listing every cockpit pilot on this robot.",

@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.4 (2026-06-05)
+  Version: 0.0.5 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -275,9 +275,12 @@
   .bucket.primary .header { color: var(--cyan); }
   .bucket.reaction .header { color: var(--orange); }
   .bucket.incidental .header { color: var(--amber); }
+  .bucket.pilots .header { color: var(--cyan); }
   .bucket.primary.open { border-color: rgba(77, 208, 225, 0.45); }
   .bucket.reaction.open { border-color: rgba(255, 138, 91, 0.45); }
   .bucket.incidental.open { border-color: rgba(255, 179, 71, 0.45); }
+  .bucket.pilots.open { border-color: rgba(77, 208, 225, 0.45); }
+  .header.static, .list-card.static { cursor: default; }
   .actions-list {
     padding: 4px 8px 8px;
     display: flex; flex-direction: column; gap: 4px;
@@ -1981,8 +1984,41 @@ function renderPerRobotBattle(b, rid) {
         <div class="stat-cell ${r.boostPower > 0 ? "cyan" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">BOOST</span><span class="val">${r.boostPower || "—"}</span></div>
       </div>
     </div>
+    ${renderCockpitPilots(r)}
     ${renderActionSheet(r)}
     ${renderComponentMap(r)}
+  `;
+}
+function renderCockpitPilots(r) {
+  const cps = r.cockpitPilots || [];
+  if (cps.length === 0) return "";
+  const rows = cps.map(cp => {
+    if (cp.isAi) {
+      return `<div class="list-card static">
+        <strong>${escapeHtml(cp.slotName)}</strong>
+        <span class="chip">A.I. Core</span>
+      </div>`;
+    }
+    const p = state.pilots.find(x => x.id === cp.pilotId);
+    if (!p) {
+      return `<div class="list-card static">
+        <strong>${escapeHtml(cp.slotName)}</strong>
+        <span class="chip muted">unassigned</span>
+      </div>`;
+    }
+    return `<div class="list-card static">
+      <strong>${escapeHtml(cp.slotName)}</strong>
+      <span class="chip">${escapeHtml(p.name || "Pilot")}</span>
+      <div class="meta">${escapeHtml(p.rank || "ROOKIE")} · STR ${cp.sysStrain}/${cp.pilotStrain}</div>
+    </div>`;
+  }).join("");
+  return `
+    <div class="bucket pilots open">
+      <div class="header static">PILOTS</div>
+      <div class="actions-list">
+        ${rows}
+      </div>
+    </div>
   `;
 }
 function pilotTokSummary(r) {

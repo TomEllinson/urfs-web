@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.4 — 2026-06-05
+v0.0.5 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.5** (2026-06-05): Cockpit assignments now visible on the
+  per-robot battle screen. New PILOTS bucket renders between vitals
+  and the action sheet, listing each cockpit's assigned pilot (or
+  A.I. Core / unassigned). Round-trip through export/import
+  preserves the assignments (already worked through the generic
+  battles store; verified via Playwright wipe+restore).
 - **v0.0.4** (2026-06-05): Pilot-assignment step inserted into the
   force deploy flow. Tapping DEPLOY on a force with cockpit-bearing
   mechs opens a per-slot picker modal (with double-booking
