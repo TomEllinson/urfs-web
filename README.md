@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.6 — 2026-06-05
+v0.0.7 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.7** (2026-06-05): Pilot talent chips wake up in the dice
+  roller. With a Sharpshooter pilot bound to a cockpit and SALVO
+  open, the "+3 SHARPSHOOTER" chip now appears and toggles in
+  (base 4 + Sharpshooter 3 = 7 d6). Closes stage-1 cockpit
+  binding.
 - **v0.0.6** (2026-06-05): ActionResolveDialog now shows a pilot
   picker for SALVO / CHARGE / MELEE_ASSAULT / HEAT_VENT and routes
   +1 Pilot Strain to the chosen cockpit pilot on RESOLVE (HEAT_VENT

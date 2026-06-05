@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.6",
+    current_version: "0.0.7",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -78,8 +78,12 @@
       id: "cockpit.dice_chips_wake_up",
       summary: "Dice roller chip catalog: enumerate the cockpit pilots on this robot and surface their talent chips (Sharpshooter for ranged, Deadeye for ranged, Brawler for melee, etc.).",
       depends_on: ["cockpit.persist_in_battle_state"],
-      status: "pending",
+      status: "done",
       acceptance: "Open dice roller for SALVO with a Sharpshooter pilot bound → Sharpshooter chip appears, togglable, +1 die when active.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. Plan: walk cockpitPilots → lookup pilot.talents → emit matching chips for the rollKind." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.7. Fixed dormant bug in rollerComputeChips: was reading cp.talents off the cockpitPilots entry shape (which never had a talents field) — now looks up talents via state.pilots.find(p => p.id === cp.pilotId)?.talents, filtered to non-AI cockpits with a pilotId. Sharpshooter/Deadeye/Brawler chip enumeration was already correct, just sourced empty. Acceptance verified: deploy Eagle (Sharpshooter+Brawler) → SALVO roller surfaces +3 SHARPSHOOTER chip; CHARGE surfaces +1 BRAWLER; MENTAL surfaces neither. Toggle+pool: base 4 + Sharpshooter 3 = 7 d6 displayed." },
+      ],
     },
   ],
 

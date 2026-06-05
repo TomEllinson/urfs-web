@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.6 (2026-06-05)
+  Version: 0.0.7 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2300,9 +2300,12 @@ function rollerComputeChips(r, rollKind) {
     chips.push({ id: "inertia", label: `+${r.silhouette} INERTIA DRIVER`, dice: r.silhouette, hint: "Inertia Driver activation. Costs Sil fuel; toggle if used." });
   }
   // Multi-arm grab: presence of any additionalGrabberComponentIds on a weapon (v0.0.2 simplification: skip unless we wire that field).
-  // Talent chips (player toggles before roll).
-  const pilots = r.cockpitPilots || [];
-  const allTalents = pilots.flatMap(p => p.talents || []);
+  // Talent chips (player toggles before roll). Cockpit pilots only store
+  // pilotId — talents live on state.pilots, so look them up there.
+  const cockpitPilots = r.cockpitPilots || [];
+  const allTalents = cockpitPilots
+    .filter(cp => !cp.isAi && cp.pilotId)
+    .flatMap(cp => state.pilots.find(p => p.id === cp.pilotId)?.talents || []);
   if (rollKind === "RANGED" && allTalents.includes("Sharpshooter")) {
     chips.push({ id: "sharpshooter", label: "+3 SHARPSHOOTER", dice: 3, hint: "Burns the free Incidental, single target only (L631)" });
   }
