@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.17 (2026-06-05)
+  Version: 0.0.18 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -786,6 +786,9 @@ function buildBattleRobotState(robot, side) {
     robotName: robot.name || "Unnamed",
     side,
     silhouette: robot.silhouette || 1,
+    frameStrength: robot.frameStrength || 1,
+    frameDurability: robot.frameDurability || 1,
+    frameMaterial: robot.frameMaterial || 1,
     components: (robot.components || []).map(c => {
       let armor = 0;
       for (const m of c.modules || []) armor += (MODULES_BY_ID[m.moduleId]?.armorMultiplier || 0) * (robot.silhouette || 1);
@@ -2236,13 +2239,82 @@ function applyDamage(robotId, componentId, amount, type) {
   r.damageLog.push({ when: Date.now(), componentId, amount, type, absorbed, breach });
   dbPut("battles", state.activeBattle);
   if (breach > 0) {
-    showToast(`${absorbed} absorbed, ${breach} breach — Frame Save next slice.`);
+    showToast(`${absorbed} absorbed, ${breach} breach — rolling Frame Save.`);
+    pushModal("frame-save", {
+      rid: robotId, cid: componentId,
+      fd: r.frameDurability || 1,
+      fm: r.frameMaterial || 1,
+      breach,
+      lastRoll: null,
+    });
   } else {
     showToast(`${absorbed} absorbed by armor. No breach.`);
+    render();
   }
-  render();
   return { absorbed, breach };
 }
+// Frame Save: FD d6 vs (7-FM)+. Hits ≥ 1 → save succeeds, breach absorbed.
+// Hits = 0 → component destroyed (binary; components have no HP per rulebook).
+function renderFrameSave(rid, cid, fd, fm, breach, lastRoll) {
+  const r = findBattleRobot(state.activeBattle, rid);
+  if (!r) return "<p>?</p>";
+  const c = r.components.find(c => (c.componentId ?? c.tempId) === cid);
+  if (!c) return "<p>?</p>";
+  const threshold = Math.max(2, 7 - fm); // clamp to 2+ so FM ≥ 6 caps at 1+
+  const dieChip = v => {
+    const hit = v >= threshold;
+    return `<span class="chip ${hit ? "amber" : "muted"}" style="font-size:14px; padding:6px 10px; margin-right:4px">${v}</span>`;
+  };
+  return `
+    <h2>FRAME SAVE</h2>
+    <p class="meta">${escapeHtml(c.name || c.definition)} took <strong>${breach}</strong> breach. Roll ${fd} d6 vs ${threshold}+.<br/>
+      Hits ≥ 1 → component intact. Hits = 0 → destroyed.</p>
+    ${lastRoll ? `
+      <div style="margin-top:12px">
+        <div class="label-small">LAST ROLL</div>
+        <div style="margin-top:6px">${lastRoll.dice.map(dieChip).join("")}</div>
+        <div style="margin-top:10px; font-size:18px">
+          ${lastRoll.hits > 0
+            ? `<span class="label-cyan">✓ SAVED · ${lastRoll.hits} hit${lastRoll.hits === 1 ? "" : "s"}</span>`
+            : `<span class="label-red">✗ DESTROYED · 0 hits</span>`}
+        </div>
+      </div>
+    ` : ""}
+    <div class="actions" style="margin-top:14px">
+      ${lastRoll
+        ? `<button class="btn amber" data-act="frame-save-done">DONE</button>`
+        : `<button class="btn ghost" data-act="modal-close">SKIP (manual)</button>
+           <button class="btn amber" data-act="frame-save-roll">ROLL ${fd} D6 VS ${threshold}+</button>`}
+    </div>
+  `;
+}
+function rollFrameSaveDice(fd) {
+  const dice = [];
+  for (let i = 0; i < fd; i++) dice.push(1 + Math.floor(Math.random() * 6));
+  return dice;
+}
+handlers["frame-save-roll"] = () => {
+  const d = state.modal.data;
+  const threshold = Math.max(2, 7 - d.fm);
+  const dice = rollFrameSaveDice(d.fd);
+  const hits = dice.filter(v => v >= threshold).length;
+  d.lastRoll = { dice, hits, threshold };
+  // Apply outcome: 0 hits = destroyed; otherwise intact.
+  if (hits === 0) {
+    const r = findBattleRobot(state.activeBattle, d.rid);
+    const c = r.components.find(c => (c.componentId ?? c.tempId) === d.cid);
+    if (c) {
+      c.isDestroyed = true;
+      c.hpCurrent = 0;
+      // Cascade fires in next slice (damage.destruction_cascade).
+    }
+    dbPut("battles", state.activeBattle);
+  }
+  render();
+};
+handlers["frame-save-done"] = () => {
+  closeModal();
+};
 handlers["apply-damage"] = ({ id }) => {
   const r = findBattleRobot(state.activeBattle, id);
   if (!r) return;
@@ -3437,6 +3509,7 @@ renderModal = function () {
     case "pilot-assign":           body = renderPilotAssign(data.fid, data.assignments); break;
     case "opponent-force-picker":  body = renderOpponentForcePicker(); break;
     case "apply-damage":           body = renderApplyDamage(data.rid, data.cid, data.amount, data.type); break;
+    case "frame-save":             body = renderFrameSave(data.rid, data.cid, data.fd, data.fm, data.breach, data.lastRoll); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;

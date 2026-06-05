@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.17 — 2026-06-05
+v0.0.18 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.18** (2026-06-05): Frame Save dialog on breach. After
+  armor absorption, breach > 0 pushes the modal: FD d6 vs (7-FM)+
+  with per-die amber/muted chips and binary outcome — ✓ SAVED
+  (component intact) or ✗ DESTROYED (`isDestroyed=true`, no HP loss
+  per rulebook). SKIP button preserves at-table resolution. Cascade
+  fires next slice.
 - **v0.0.17** (2026-06-05): Armor now actually absorbs damage.
   `applyDamage` computes `absorbed = min(armor, amount)` and
   `breach = amount - absorbed`, mutates the component's armor down

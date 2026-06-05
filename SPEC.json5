@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.17",
+    current_version: "0.0.18",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -212,8 +212,12 @@
       id: "damage.frame_save_dialog",
       summary: "On breach: dialog showing FD d6 vs 7-FM+ threshold. Roll button. Outcome is binary: save success → component intact; save fail → component destroyed (no HP loss — components have no HP stat per rulebook).",
       depends_on: ["damage.buffer_absorbs_first"],
-      status: "pending",
+      status: "done",
       acceptance: "FD=2, FM=3 → roll 2 d6 vs 4+. Show dice, count hits. Hits ≥ 1 = save succeeds, breach absorbed. Hits = 0 = component is destroyed (binary).",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. applyDamage opens frame-save modal on breach > 0; modal renders FD d6 vs 7-FM+ threshold + ROLL button. Roll → mark dice that meet threshold as hits → hits ≥ 1: save passes (component intact); hits = 0: c.isDestroyed = true. Cascade fires in next slice." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.18. applyDamage pushes frame-save modal when breach > 0. renderFrameSave shows '<comp> took N breach. Roll FD d6 vs (7-FM)+.' + amber-hit / muted-miss per-die chips on roll + ✓ SAVED · N hits in cyan or ✗ DESTROYED · 0 hits in red. SKIP (manual) button preserves at-table resolution path. frame-save-roll handler rolls dice, applies binary outcome: hits=0 → c.isDestroyed=true, c.hpCurrent=0. Cascade fires next slice. PREREQ FIX: buildBattleRobotState now carries frameStrength/frameDurability/frameMaterial onto BattleRobotState (was missing — caused FD/FM to default to 1). 2 cases verified at FD=2/FM=3 (threshold 4+): [5,5]→2 hits→intact; [1,1]→0 hits→destroyed." },
+      ],
     },
     {
       id: "damage.destruction_cascade",
