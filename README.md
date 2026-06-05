@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.8 — 2026-06-05
+v0.0.9 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.9** (2026-06-05): P2 force can now join an existing battle.
+  New "+ ADD OPPONENT FORCE" button on the battle overview opens a
+  force picker (excluding the current P1 force AND any force that
+  shares a robot with it — prevents lookup collisions). Reuses the
+  pilot-assign modal for the P2 cockpits. Battle overview now
+  shows both YOUR FORCE and OPPONENT FORCE sections with their
+  robot cards. Round-trip preserves both sides.
 - **v0.0.8** (2026-06-05): Battle state foundation for two-sided
   combat. New `findBattleRobot(b, rid)` helper searches BOTH
   `p1Robots[]` and `p2Robots[]`; 31 prior lookups refactored to

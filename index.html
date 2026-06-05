@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.8 (2026-06-05)
+  Version: 0.0.9 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -1878,7 +1878,10 @@ function renderBattleOverview(b) {
         <strong>${escapeHtml(b.p2ForceName || "Opponent")}</strong>
       </div>
     </div>
-    ${b.p2Robots.map(r => robotOverviewCard(r)).join("")}` : ""}
+    ${b.p2Robots.map(r => robotOverviewCard(r)).join("")}` : `
+    <div style="margin-top:10px">
+      <button class="btn ghost" data-act="add-opponent-force">+ ADD OPPONENT FORCE</button>
+    </div>`}
     <div class="row-gap" style="margin-top:14px">
       <button class="btn amber wide" data-act="pass-priority">PASS PRIORITY</button>
     </div>
@@ -1889,6 +1892,57 @@ function renderBattleOverview(b) {
     </div>
   `;
 }
+function renderOpponentForcePicker() {
+  const b = state.activeBattle;
+  // Exclude the deployed P1 force AND any force that would put a robot.id
+  // into both sides (findBattleRobot resolves first-match-wins, so a
+  // collision would make a P2 robot effectively unreachable).
+  const p1RobotIds = new Set((b.p1Robots || []).map(r => r.robotId));
+  const eligible = state.forces.filter(f => {
+    if (f.id === b.p1ForceId) return false;
+    const fRobotIds = f.robotIds || [];
+    return !fRobotIds.some(id => p1RobotIds.has(id));
+  });
+  const p1Label = b.p1ForceName || "your force";
+  if (eligible.length === 0) {
+    return `
+      <h2>ADD OPPONENT FORCE</h2>
+      <p style="margin:16px 0">No other forces available — every existing force either is your current one or shares a robot with it. Create a new force in the FORCES tab first.</p>
+      <div class="actions" style="margin-top:16px">
+        <button class="btn ghost" data-act="close-opponent-picker">CANCEL</button>
+      </div>
+    `;
+  }
+  return `
+    <h2>ADD OPPONENT FORCE</h2>
+    <div class="meta" style="margin-bottom:12px">Pick the force that will oppose ${escapeHtml(p1Label)}.</div>
+    ${eligible.map(f => `
+      <div class="list-card" data-act="select-opponent-force" data-fid="${f.id}" style="cursor:pointer;margin-bottom:6px">
+        <div style="flex:1">
+          <h3 style="margin:0">${escapeHtml(f.name || "Unnamed Force")}</h3>
+          <div class="meta">${f.robotIds ? f.robotIds.length : 0} robot(s)</div>
+        </div>
+        <span class="chip">SELECT</span>
+      </div>
+    `).join("")}
+    <div class="actions" style="margin-top:16px">
+      <button class="btn ghost" data-act="close-opponent-picker">CANCEL</button>
+    </div>
+  `;
+}
+
+handlers["add-opponent-force"] = () => {
+  pushModal("opponent-force-picker", {});
+};
+
+handlers["close-opponent-picker"] = () => {
+  closeModal();
+};
+
+handlers["select-opponent-force"] = ({ fid }) => {
+  pushModal("pilot-assign", { fid: Number(fid), assignments: {}, side: "P2" });
+};
+
 function robotOverviewCard(r) {
   const armorCurrent = r.components.reduce((a, c) => a + c.hpCurrent, 0);
   const armorMax = r.components.reduce((a, c) => a + c.hpMax, 0);
@@ -3117,6 +3171,8 @@ function renderPilotAssign(fid, assignments) {
   });
   const deployDisabled = allAssigned ? "" : "disabled";
   const deployClass = allAssigned ? "btn amber" : "btn amber disabled";
+  const side = (state.modal && state.modal.data && state.modal.data.side) || "P1";
+  const deployLabel = side === "P2" ? "ADD TO BATTLE" : "DEPLOY";
 
   return `
     <h2>ASSIGN PILOTS</h2>
@@ -3124,7 +3180,7 @@ function renderPilotAssign(fid, assignments) {
     ${robotSections}
     <div class="actions" style="margin-top:16px">
       <button class="btn ghost" data-act="cancel-pilot-assign" data-fid="${fid}">CANCEL</button>
-      <button class="${deployClass}" data-act="confirm-pilot-assign" data-fid="${fid}" ${deployDisabled}>DEPLOY</button>
+      <button class="${deployClass}" data-act="confirm-pilot-assign" data-fid="${fid}" ${deployDisabled}>${deployLabel}</button>
     </div>
   `;
 }
@@ -3138,11 +3194,45 @@ handlers["pilot-slot-changed"] = ({ fid, key }, value) => {
 handlers["confirm-pilot-assign"] = ({ fid }) => {
   const f = state.forces.find(x => x.id === Number(fid));
   if (!f) return;
-  const assignments = (state.modal && state.modal.data && state.modal.data.assignments) || {};
+  const modalData = (state.modal && state.modal.data) || {};
+  const assignments = modalData.assignments || {};
+  const side = modalData.side || "P1";
   const slots = forceCockpitSlots(f);
   const humanSlots = slots.filter(s => !s.isAi);
   if (humanSlots.some(s => !assignments[`${s.robotId}:${s.componentId}:${s.slotIndex}`])) return;
-  deployForceWithAssignments(f, assignments);
+
+  if (side === "P2") {
+    // Add opponent robots to the existing active battle.
+    const b = state.activeBattle;
+    if (!b) return;
+    const p2Robots = f.robotIds.map(rid => {
+      const robot = state.robots.find(r => r.id === rid);
+      if (!robot) return null;
+      const bs = buildBattleRobotState(robot, "P2");
+      bs.cockpitPilots = robotCockpitSlots(robot).map(slot => {
+        const slotKey = `${robot.id}:${slot.componentId}:${slot.slotIndex}`;
+        return {
+          componentId: slot.componentId,
+          moduleIndex: slot.moduleIndex,
+          slotIndex: slot.slotIndex,
+          slotName: slot.slotName,
+          pilotId: slot.isAi ? null : (assignments[slotKey] || null),
+          isAi: slot.isAi,
+          sysStrain: 0,
+          pilotStrain: 0,
+        };
+      });
+      return bs;
+    }).filter(Boolean);
+    for (const br of p2Robots) b.p2Robots.push(br);
+    b.p2ForceId = f.id;
+    b.p2ForceName = f.name;
+    dbPut("battles", b);
+    closeModal();
+    render();
+  } else {
+    deployForceWithAssignments(f, assignments);
+  }
 };
 
 handlers["cancel-pilot-assign"] = ({ fid }) => {
@@ -3184,7 +3274,8 @@ renderModal = function () {
     case "status-picker":    body = renderStatusPicker(data.id); break;
     case "comp-sheet":       body = renderCompSheet(data.id, data.cid); break;
     case "dice-roller":      body = renderDiceRoller(data.id, data.k); break;
-    case "pilot-assign":    body = renderPilotAssign(data.fid, data.assignments); break;
+    case "pilot-assign":           body = renderPilotAssign(data.fid, data.assignments); break;
+    case "opponent-force-picker":  body = renderOpponentForcePicker(); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;

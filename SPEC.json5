@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.8",
+    current_version: "0.0.9",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -104,8 +104,12 @@
       id: "twosides.deploy_picks_two_forces",
       summary: "Deploy flow asks: P1 force + P2 force (optional). If P2 omitted, default-empty (skirmish/solo).",
       depends_on: ["twosides.battle_state_two_forces"],
-      status: "pending",
+      status: "done",
       acceptance: "Deploy 2 forces → battle has 6 robot cards in two sections (YOUR / OPPONENT).",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. DECISION_LOG: post-deploy '+ ADD OPPONENT FORCE' button on battle overview rather than re-plumbing pre-deploy flow. Less disruption to v0.0.4 pilot-assign code; mirrors table-play where opponent may show up later. Tap opens force picker (excluding current p1ForceId) → existing pilot-assign modal reused with side='P2' context → robots pushed to p2Robots, p2ForceId set." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.9. New '+ ADD OPPONENT FORCE' button on battle overview (visible when p2Robots.length === 0). renderOpponentForcePicker filters out (a) the deployed P1 force AND (b) any force that contains a robot.id also in p1Robots — second filter prevents findBattleRobot collisions (first-match-wins would make a P2 instance unreachable). Reused renderPilotAssign with side='P2' param; confirm-pilot-assign branches: P1 → deployForceWithAssignments creates new battle (unchanged), P2 → builds battle-robot states for the existing battle and pushes to p2Robots. p1ForceName has 'your force' fallback for legacy battles. 7+1 Playwright cases verified: end-to-end 1+2 deploy, collision filter excludes Force C (shares robot with deployed P1), legacy-battle fallback label." },
+      ],
     },
     {
       id: "twosides.battle_overview_both_sides",
