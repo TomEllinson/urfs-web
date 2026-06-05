@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.15 (2026-06-05)
+  Version: 0.0.16 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2194,6 +2194,7 @@ function renderComponentMap(r) {
       <div class="row-between">
         <div class="label-small">SCHEMATIC · tap any node to edit</div>
         <div class="row-gap">
+          <button class="btn ghost" style="padding:4px 8px" data-act="apply-damage" data-id="${r.robotId}">APPLY DAMAGE</button>
           <button class="btn ghost" style="padding:4px 8px" data-act="reset-armor" data-id="${r.robotId}">RESET ARMOR</button>
         </div>
       </div>
@@ -2215,6 +2216,75 @@ handlers["reset-armor"] = ({ id }) => {
   dbPut("battles", state.activeBattle);
   render();
 };
+
+// ── Damage pipeline (stage 4) ────────────────────────────────────────
+// applyDamage is the canonical "damage hits a component" entry point.
+// THIS SLICE: stub. The buffer → frame save → cascade pipeline is
+// wired in subsequent slices. For now the stub just toasts and
+// records a log entry so callers can observe the call.
+function applyDamage(robotId, componentId, amount, type) {
+  const r = findBattleRobot(state.activeBattle, robotId);
+  if (!r) return;
+  const c = r.components.find(c => (c.componentId ?? c.tempId) === componentId);
+  if (!c) return;
+  r.damageLog = r.damageLog || [];
+  r.damageLog.push({ when: Date.now(), componentId, amount, type });
+  showToast(`${amount} ${type} damage queued on ${c.name || c.definition} — pipeline ships in next slice.`);
+  dbPut("battles", state.activeBattle);
+}
+handlers["apply-damage"] = ({ id }) => {
+  const r = findBattleRobot(state.activeBattle, id);
+  if (!r) return;
+  const firstAlive = (r.components || []).find(c => !c.isDestroyed);
+  const defaultCid = firstAlive ? (firstAlive.componentId ?? firstAlive.tempId) : null;
+  pushModal("apply-damage", { rid: Number(id), cid: defaultCid, amount: 1, type: "Physical" });
+};
+handlers["apply-damage-set-cid"] = ({ cid }) => {
+  state.modal.data.cid = isNaN(Number(cid)) ? cid : Number(cid);
+  render();
+};
+handlers["apply-damage-set-type"] = ({ type }) => {
+  state.modal.data.type = type;
+  render();
+};
+handlers["apply-damage-set-amount"] = ({ value }) => {
+  state.modal.data.amount = Math.max(0, Number(value) || 0);
+  render();
+};
+handlers["apply-damage-submit"] = () => {
+  const { rid, cid, amount, type } = state.modal.data;
+  applyDamage(rid, cid, amount, type);
+  closeModal();
+};
+function renderApplyDamage(rid, cid, amount, type) {
+  const r = findBattleRobot(state.activeBattle, rid);
+  if (!r) return "<p>?</p>";
+  const comps = (r.components || []).filter(c => !c.isDestroyed);
+  const cidOf = c => c.componentId ?? c.tempId;
+  return `
+    <h2>APPLY DAMAGE</h2>
+    <p class="meta">Target component, amount, and type. Pipeline applies armor first, then Frame Save on overflow.</p>
+    <div class="label-small label-cyan" style="margin-top:10px">COMPONENT</div>
+    <select data-act="apply-damage-set-cid" data-key="cid" style="width:100%; margin-top:4px; padding:8px">
+      ${comps.map(c => `
+        <option value="${cidOf(c)}" ${cidOf(c) === cid ? "selected" : ""}>
+          ${escapeHtml((c.name || c.definition || "?") + " · " + c.definition + " · armor " + (c.hpCurrent ?? 0) + "/" + (c.hpMax ?? 0))}
+        </option>
+      `).join("")}
+    </select>
+    <div class="label-small label-cyan" style="margin-top:10px">AMOUNT</div>
+    <input type="number" min="0" value="${amount}" data-act="apply-damage-set-amount" style="width:100%; padding:8px; margin-top:4px" />
+    <div class="label-small label-cyan" style="margin-top:10px">TYPE</div>
+    <div class="row-gap" style="margin-top:4px">
+      <button class="btn ${type === "Physical" ? "amber" : "ghost"}" data-act="apply-damage-set-type" data-type="Physical">PHYSICAL</button>
+      <button class="btn ${type === "Energy" ? "amber" : "ghost"}" data-act="apply-damage-set-type" data-type="Energy">ENERGY</button>
+    </div>
+    <div class="actions" style="margin-top:14px">
+      <button class="btn ghost" data-act="modal-close">CANCEL</button>
+      <button class="btn amber" data-act="apply-damage-submit" ${amount <= 0 ? "disabled" : ""}>APPLY</button>
+    </div>
+  `;
+}
 </script>
 
 <script>
@@ -3355,6 +3425,7 @@ renderModal = function () {
     case "dice-roller":      body = renderDiceRoller(data.id, data.k); break;
     case "pilot-assign":           body = renderPilotAssign(data.fid, data.assignments); break;
     case "opponent-force-picker":  body = renderOpponentForcePicker(); break;
+    case "apply-damage":           body = renderApplyDamage(data.rid, data.cid, data.amount, data.type); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;

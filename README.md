@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.15 — 2026-06-05
+v0.0.16 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.16** (2026-06-05): APPLY DAMAGE dialog (stage 4 begins).
+  New button on the per-robot schematic toolbar opens a modal with
+  component picker (alive only), amount input, and Physical/Energy
+  type toggle. Submit calls `applyDamage(robotId, cid, amount, type)`
+  — currently a stub that logs the call; the buffer→frame-save→
+  cascade pipeline ships in the next slices.
 - **v0.0.15** (2026-06-05): End-of-round refresh wired. Round
   advance (PASS double-pass OR manual + ROUND) now ticks every
   robot's capacitor by +1, clamped to its capacitorsMax (a new
