@@ -121,10 +121,13 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.13 — 2026-06-05
+v0.0.14 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.14** (2026-06-05): Per-robot screen now shows an
+  ACTIONS THIS ROUND chip row between PILOTS and the action sheet:
+  P:n/1, R:n/2, I:n. Chip turns amber when its bucket is at cap.
 - **v0.0.13** (2026-06-05): Spent actions now dim + disable in the
   action sheet, with a "PRIMARY SPENT" / "REACTION SPENT" reason
   chip. PASS stays available (it's how you end the round even with

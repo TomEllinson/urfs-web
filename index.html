@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.13 (2026-06-05)
+  Version: 0.0.14 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2089,8 +2089,23 @@ function renderPerRobotBattle(b, rid) {
       </div>
     </div>
     ${renderCockpitPilots(r)}
+    ${renderActionBudget(r)}
     ${renderActionSheet(r)}
     ${renderComponentMap(r)}
+  `;
+}
+function renderActionBudget(r) {
+  const b = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+  const pAtCap = b.primaryUsed >= 1;
+  const rAtCap = b.reactionsUsed >= 2;
+  const chip = (label, cls) => `<span class="chip ${cls}">${label}</span>`;
+  return `
+    <div class="card tight" style="display:flex; align-items:center; gap:8px">
+      <span class="label-small">ACTIONS THIS ROUND</span>
+      ${chip(`P:${b.primaryUsed}/1`,      pAtCap ? "amber" : "")}
+      ${chip(`R:${b.reactionsUsed}/2`,    rAtCap ? "amber" : "")}
+      ${chip(`I:${b.incidentalsUsed}`,    "")}
+    </div>
   `;
 }
 function renderCockpitPilots(r) {

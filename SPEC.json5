@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.13",
+    current_version: "0.0.14",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -162,8 +162,12 @@
       id: "budget.actions_this_round_panel",
       summary: "Per-robot screen: ACTIONS THIS ROUND chip row: P:1/1, R:0/2, I:3. Color when at-cap.",
       depends_on: ["budget.per_robot_action_pool"],
-      status: "pending",
+      status: "done",
       acceptance: "Visual chips that mirror rulebook caps.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. Adding renderActionBudget(r) between PILOTS section and action sheet. Chip row: ACTIONS THIS ROUND · P:n/1 · R:n/2 · I:n. Amber chip when at cap." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.14. renderActionBudget(r) renders a thin .card.tight row with the label and 3 chips (P:n/1, R:n/2, I:n). Amber chip class applied when the bucket is at cap; default cyan chip otherwise. Inserted between renderCockpitPilots and renderActionSheet. Trace verified: deploy 0/0/0 → after Salvo+Dodge: 1/1/0, P chip is amber." },
+      ],
     },
     {
       id: "budget.end_of_round_refresh",
