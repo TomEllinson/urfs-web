@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.18 (2026-06-05)
+  Version: 0.0.19 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -794,6 +794,7 @@ function buildBattleRobotState(robot, side) {
       for (const m of c.modules || []) armor += (MODULES_BY_ID[m.moduleId]?.armorMultiplier || 0) * (robot.silhouette || 1);
       return {
         componentId: c.tempId,
+        parentComponentId: c.parentTempId ?? null,
         name: c.name || c.definition,
         definition: c.definition,
         facing: c.facing || "FRONT",
@@ -2301,17 +2302,63 @@ handlers["frame-save-roll"] = () => {
   d.lastRoll = { dice, hits, threshold };
   // Apply outcome: 0 hits = destroyed; otherwise intact.
   if (hits === 0) {
-    const r = findBattleRobot(state.activeBattle, d.rid);
-    const c = r.components.find(c => (c.componentId ?? c.tempId) === d.cid);
-    if (c) {
-      c.isDestroyed = true;
-      c.hpCurrent = 0;
-      // Cascade fires in next slice (damage.destruction_cascade).
-    }
-    dbPut("battles", state.activeBattle);
+    destroyComponent(d.rid, d.cid);
   }
+  dbPut("battles", state.activeBattle);
   render();
 };
+
+// Destroy a component AND fire the cascade per Android:
+// - stowed children destroyed (recursive),
+// - fuel-tank components spill silhouette damage to siblings + parent,
+// - destroyed component drops its equipment[].
+// Spillage applies direct to buffer (no nested Frame Save modal — that
+// would spiral). Players resolve spillage-triggered destructions
+// manually via the next APPLY DAMAGE if they want a save roll on a
+// cascaded breach.
+function destroyComponent(robotId, componentId) {
+  const r = findBattleRobot(state.activeBattle, robotId);
+  if (!r) return;
+  const c = r.components.find(x => (x.componentId ?? x.tempId) === componentId);
+  if (!c || c.isDestroyed) return;
+  c.isDestroyed = true;
+  c.hpCurrent = 0;
+  r.cascadeLog = r.cascadeLog || [];
+  r.cascadeLog.push({ kind: "destroyed", componentId, when: Date.now() });
+
+  const parentRef = c.parentComponentId ?? c.parentTempId ?? null;
+
+  // (1) Cascade to stowed children. Recursive — children of children
+  // also fall.
+  for (const child of r.components) {
+    const childParent = child.parentComponentId ?? child.parentTempId ?? null;
+    if (childParent === componentId && !child.isDestroyed) {
+      destroyComponent(robotId, child.componentId ?? child.tempId);
+    }
+  }
+
+  // (2) Fuel-tank spillage. Apply silhouette damage to siblings + parent.
+  const hadFuel = (c.modules || []).some(m => (MODULES_BY_ID[m.moduleId]?.fuelCapacity || 0) > 0);
+  if (hadFuel) {
+    const sil = r.silhouette || 1;
+    const adjacent = r.components.filter(x => !x.isDestroyed
+      && ((x.parentComponentId ?? x.parentTempId ?? null) === parentRef
+          || (x.componentId ?? x.tempId) === parentRef));
+    for (const a of adjacent) {
+      const armorBefore = a.hpCurrent || 0;
+      const absorbed = Math.min(armorBefore, sil);
+      a.hpCurrent = armorBefore - absorbed;
+      r.cascadeLog.push({ kind: "fuel-spill", componentId: a.componentId ?? a.tempId, damage: sil, absorbed, breach: sil - absorbed });
+    }
+  }
+
+  // (3) Drop equipment.
+  if ((c.equipment || []).length > 0) {
+    r.droppedEquipment = (r.droppedEquipment || []).concat(c.equipment);
+    r.cascadeLog.push({ kind: "drop-equipment", componentId, count: c.equipment.length });
+    c.equipment = [];
+  }
+}
 handlers["frame-save-done"] = () => {
   closeModal();
 };

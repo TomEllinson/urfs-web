@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.18 — 2026-06-05
+v0.0.19 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.19** (2026-06-05): Destruction cascade. Failed Frame Save
+  destroys the component AND fires: (1) recursive child cascade via
+  `parentComponentId` (Arm goes down → its Hand goes too), (2)
+  silhouette spillage from fuel-tank-carrying components onto
+  siblings + parent (direct to buffer, no nested save), (3)
+  equipment[] drops into `r.droppedEquipment`. cascadeLog records
+  every event.
 - **v0.0.18** (2026-06-05): Frame Save dialog on breach. After
   armor absorption, breach > 0 pushes the modal: FD d6 vs (7-FM)+
   with per-die amber/muted chips and binary outcome — ✓ SAVED

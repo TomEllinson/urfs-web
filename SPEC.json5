@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.18",
+    current_version: "0.0.19",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -223,8 +223,12 @@
       id: "damage.destruction_cascade",
       summary: "Failed save → component.isDestroyed = true → cascade per Android: stowed children destroyed, fuel-tank components spill (collateral), equipment-grabber components drop equipment.",
       depends_on: ["damage.frame_save_dialog"],
-      status: "pending",
+      status: "done",
       acceptance: "Failed save destroys component; destroy a host with 3 stowed components → all 3 marked destroyed; destroy a fuel tank → adjacent components take spill damage per rulebook.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. Cascade order: (1) recursively destroy children where parentTempId === this.componentId (handles arbitrary depth), (2) if this had a fuelCapacity > 0 module, apply silhouette damage to siblings + parent direct-to-buffer (no nested frame save), (3) drop all equipment[]." },
+        { when: "2026-06-05", who: "claude", note: "shipped in 0.0.19. destroyComponent(robotId, componentId): marks isDestroyed+hpCurrent=0, recursively cascades children via parentComponentId (NEW field on battle component — buildBattleRobotState was missing it), then if hadFuel applies silhouette spillage damage directly to buffer of siblings+parent (no nested Frame Save modal), then drops equipment[] into r.droppedEquipment[]. Spillage breaches go to log; manual APPLY DAMAGE re-roll lets player resolve those if desired. frame-save-roll now calls destroyComponent on 0-hits outcome. cascadeLog tracks every event. 2 cases verified: (A) destroy mid-spine Arm → Hand cascades, equipment 'Sword' lands in droppedEquipment, sibling untouched. (B) destroy fuel-carrying Core → Arm+Hand cascade 3-deep, sibling takes silhouette 3 spillage damage absorbed by armor 5 → 2." },
+      ],
     },
     {
       id: "damage.recompute_derived_stats",
