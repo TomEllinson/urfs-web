@@ -121,10 +121,18 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.10 — 2026-06-05
+v0.0.11 — 2026-06-05
 
 ### Changelog
 
+- **v0.0.11** (2026-06-05): Priority handoff state machine.
+  PASS PRIORITY now reads the current holder, clears THAT side's
+  pilot strain (was a long-standing bug — old code only ever
+  cleared P1), marks that side passed, and flips priority. When
+  both sides have passed, the round advances and flags reset. Per-
+  side header chip shows "✓ PASSED" (muted) or "PRIORITY"
+  (amber) so the table state is legible at a glance. Closes
+  stage-2 two-sided combat.
 - **v0.0.10** (2026-06-05): Battle overview now color-codes the two
   sides — YOUR FORCE header + robot cards get a cyan left-border
   accent, OPPONENT FORCE gets red. Tap-to-detail works on either

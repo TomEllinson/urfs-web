@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.10 (2026-06-05)
+  Version: 0.0.11 (2026-06-05)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -1861,6 +1861,10 @@ handlers["resume-battle"] = ({ id }) => {
 };
 
 function renderBattleOverview(b) {
+  const passed = b.passedThisRound || { P1: false, P2: false };
+  const passChip = side => passed[side]
+    ? `<span class="chip muted">✓ PASSED</span>`
+    : (b.priority === side ? `<span class="chip amber">PRIORITY</span>` : "");
   return `
     <div class="card friendly row-between">
       <div>
@@ -1869,7 +1873,7 @@ function renderBattleOverview(b) {
       </div>
       <div class="row-gap">
         <span class="chip">ROUND ${b.round}</span>
-        <span class="chip ${b.priority === "P1" ? "amber" : "muted"}">${b.priority === "P1" ? "YOUR" : "OPP"}</span>
+        ${passChip("P1")}
       </div>
     </div>
     ${b.p1Robots.map(r => robotOverviewCard(r)).join("")}
@@ -1879,6 +1883,7 @@ function renderBattleOverview(b) {
         <div class="label-small label-red">OPPONENT FORCE</div>
         <strong>${escapeHtml(b.p2ForceName || "Opponent")}</strong>
       </div>
+      <div class="row-gap">${passChip("P2")}</div>
     </div>
     ${b.p2Robots.map(r => robotOverviewCard(r)).join("")}` : `
     <div style="margin-top:10px">
@@ -1999,12 +2004,26 @@ function findBattleRobot(b, rid) {
 }
 handlers["pass-priority"] = () => {
   const b = state.activeBattle;
-  b.priority = b.priority === "P1" ? "P2" : "P1";
+  if (!b) return;
+  b.passedThisRound = b.passedThisRound || { P1: false, P2: false };
+  const passingSide = b.priority || "P1";
+  const sideRobots = passingSide === "P1" ? (b.p1Robots || []) : (b.p2Robots || []);
   // Pass clears Pilot Strain per L220.
-  for (const r of b.p1Robots) {
+  for (const r of sideRobots) {
     r.pilotTokens = 0;
-    // also reset cockpit pilot tokens
-    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, tokens: 0 }));
+    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, pilotStrain: 0 }));
+  }
+  b.passedThisRound[passingSide] = true;
+  const hasP2 = (b.p2Robots || []).length > 0;
+  if (!hasP2 || (b.passedThisRound.P1 && b.passedThisRound.P2)) {
+    // Skirmish solo path OR both sides passed → advance round.
+    b.round = (b.round || 1) + 1;
+    b.passedThisRound = { P1: false, P2: false };
+    b.priority = "P1";
+    showToast(`Round ${b.round} begins.`);
+  } else {
+    b.priority = passingSide === "P1" ? "P2" : "P1";
+    showToast(`${passingSide} passed. ${b.priority} has priority.`);
   }
   dbPut("battles", b);
   render();
