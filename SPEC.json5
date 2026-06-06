@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.27",
+    current_version: "0.0.28",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -330,8 +330,12 @@
       id: "dice.charge_move_plus_melee",
       summary: "Charge: ½ GSPD move + melee attack roll. Resolve dice as melee attack.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Charge → distance picker → ½ GSPD spent → melee roll dice.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. ActionResolveDialog for CHARGE shows distance picker (0..floor(groundSpeed/2)). On RESOLVE: r.gspdSpent += distance; round advance resets gspdSpent (in pass-priority + round-next per existing budget reset). Existing OPEN DICE ROLLER button already routes to MELEE roll context. Per-robot screen GSPD chip shows spent/total." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.28. ActionResolveDialog for CHARGE gains a CHARGE DISTANCE section between the pilot picker and OPEN DICE ROLLER — number input ranging 0..½GSPD-already-spent, defaults to current remaining. set-charge-distance handler stores value on state.modal.data.distance without re-render (preserves input focus). RESOLVE clamps to remaining and adds to r.gspdSpent. New r.gspdSpent field in buildBattleRobotState; both round-advance paths (pass-priority and round-next) reset it to 0. Melee dice roll itself ships via existing OPEN DICE ROLLER button (actionRollKind('CHARGE')==='MELEE'). 4 phases verified: gspd 6/half 3/start 0 → spend 2 → 2; try 5 (only 1 left) clamped to 1 → 3; round advance → 0." },
+      ],
     },
     {
       id: "dice.strafe_move_plus_ranged",

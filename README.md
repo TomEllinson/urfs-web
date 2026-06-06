@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.27 — 2026-06-06
+v0.0.28 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.28** (2026-06-06): Charge gains a distance picker. New
+  CHARGE DISTANCE input in the ActionResolveDialog accepts 0 up to
+  ½ Ground Speed minus what's already spent this round; on RESOLVE
+  the chosen distance is clamped to the remaining budget and added
+  to `r.gspdSpent`. Round advance resets the counter. Melee dice
+  still roll via the existing OPEN DICE ROLLER button.
 - **v0.0.27** (2026-06-06): Salvo gains a multi-target picker
   (stage 6 begins). ActionResolveDialog for SALVO shows every
   other battle robot as a tappable card; each pick increments a

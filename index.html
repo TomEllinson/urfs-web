@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.27 (2026-06-06)
+  Version: 0.0.28 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -835,6 +835,7 @@ function buildBattleRobotState(robot, side) {
     altitude: 0, inertia: 0,
     cockpitPilots: [], // populated when force deploys with pilots
     actionBudget: { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 },
+    gspdSpent: 0,
   };
 }
 
@@ -2028,6 +2029,7 @@ handlers["pass-priority"] = () => {
     b.priority = "P1";
     for (const robot of [...(b.p1Robots || []), ...(b.p2Robots || [])]) {
       robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+      robot.gspdSpent = 0;
       const cap = robot.capacitorsMax ?? 0;
       robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
       // Shutdown-this-round clears at round advance; robot can act again.
@@ -2519,6 +2521,12 @@ function renderApplyDamage(rid, cid, amount, type) {
 // ════════════════════════════════════════════════════════════════════
 // ACTION RESOLVE MODAL + STRAIN DIALOGS + COMPONENT SHEET
 // ════════════════════════════════════════════════════════════════════
+handlers["set-charge-distance"] = ({ value }) => {
+  const d = state.modal?.data;
+  if (!d) return;
+  d.distance = Math.max(0, Number(value) || 0);
+  // No re-render needed — the input keeps focus and other UI is unaffected.
+};
 handlers["toggle-salvo-target"] = ({ tid }) => {
   const d = state.modal?.data;
   if (!d) return;
@@ -2622,6 +2630,19 @@ let renderActionResolve = function (rid, k) {
           }).join("")}
         </div>
         ${mentalCheckNeeded ? `<p class="label-small label-amber" style="margin-top:6px">⚠ ${sel.size} > Mental ${mental} → extra Mental check required</p>` : ""}
+      `;
+    })()}
+    ${(() => {
+      if (k !== "CHARGE") return "";
+      const halfGspd = Math.floor((r.groundSpeed || 0) / 2);
+      const remaining = halfGspd - (r.gspdSpent || 0);
+      const dist = state.modal?.data?.distance ?? Math.min(remaining, halfGspd);
+      const clamped = Math.max(0, Math.min(remaining, dist));
+      return `
+        <div class="label-small label-cyan" style="margin-top:10px">CHARGE DISTANCE</div>
+        <p style="font-size:12px; color:var(--on-surface-muted)">½ Ground Speed = ${halfGspd} SU. Already spent this round: ${r.gspdSpent || 0}. Pick distance:</p>
+        <input type="number" min="0" max="${remaining}" value="${clamped}" data-act="set-charge-distance" style="width:100%; padding:8px; margin-top:4px" />
+        ${remaining <= 0 ? `<p class="label-small label-amber" style="margin-top:6px">⚠ No GSPD left this round.</p>` : ""}
       `;
     })()}
     ${actionRollKind(k) ? `
@@ -2746,6 +2767,15 @@ handlers["resolve-action"] = ({ id, k }) => {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
       if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
+      // Charge: deduct chosen distance from the GSPD-spent counter.
+      if (k === "CHARGE") {
+        const dist = state.modal?.data?.distance || 0;
+        const halfGspd = Math.floor((r.groundSpeed || 0) / 2);
+        const remaining = halfGspd - (r.gspdSpent || 0);
+        const clamped = Math.max(0, Math.min(remaining, dist));
+        r.gspdSpent = (r.gspdSpent || 0) + clamped;
+        showToast(`Charge — moved ${clamped} SU, ${remaining - clamped} ½GSPD left this round.`);
+      }
       // Salvo: per-target saturation tokens + Mental check trigger.
       if (k === "SALVO") {
         const tids = state.modal?.data?.targetIds || [];
