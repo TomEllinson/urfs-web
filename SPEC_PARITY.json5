@@ -279,8 +279,9 @@
         },
         {
           id: "battle.salvo_strain_per_target",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — per-target strain cost + Salvo Overflow −n chip in dice roller" }],
           summary: "SALVO applies +1 pilot strain per target, and Mental check on overflow subtracts the diff from each attack's dice pool.",
           acceptance: [
             "actionPilotStrainCost('SALVO') replaced with target-count-aware cost.",
@@ -291,8 +292,9 @@
         },
         {
           id: "battle.frame_save_on_manual_bump",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — bump-comp-hp routes through applyDamage on lethal decrement" }],
           summary: "Manually decrementing armor to 0 routes through Frame Save instead of bypassing it.",
           acceptance: [
             "bump-comp-hp at 0 calls applyDamage(component, 1, 'Manual') instead of c.isDestroyed = true direct set.",
@@ -302,8 +304,9 @@
         },
         {
           id: "battle.pass_action_via_state_machine",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — resolve-action PASS dispatches to pass-priority handler" }],
           summary: "PASS action in action sheet goes through the same pass-priority handler that nav-bar PASS uses. No raw priority flip.",
           acceptance: [
             "resolve-action PASS calls handlers['pass-priority']({ side }) instead of inline flip.",

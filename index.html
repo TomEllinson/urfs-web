@@ -2814,11 +2814,11 @@ function findBattleRobot(b, rid) {
   if (p1) return p1;
   return (b?.p2Robots || []).find(x => x.robotId === n || x.robotId === rid);
 }
-handlers["pass-priority"] = () => {
+handlers["pass-priority"] = ({ side } = {}) => {
   const b = state.activeBattle;
   if (!b) return;
   b.passedThisRound = b.passedThisRound || { P1: false, P2: false };
-  const passingSide = b.priority || "P1";
+  const passingSide = side || b.priority || "P1";
   const sideRobots = passingSide === "P1" ? (b.p1Robots || []) : (b.p2Robots || []);
   // Pass clears Pilot Strain per L220.
   for (const r of sideRobots) {
@@ -3765,10 +3765,10 @@ function robotHasMeleeWeapon(r) {
   );
 }
 // Baseline pilot strain delta on RESOLVE.
-// SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
-// per-target multiplication ships with the per-target dice flow in stage 6.
-function actionPilotStrainCost(k) {
-  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE") return 1;
+// SALVO is +1 per target (rulebook L228 cost line). All others cost 1 flat.
+function actionPilotStrainCost(k, targetCount = 1) {
+  if (k === "SALVO") return targetCount;
+  if (k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE") return 1;
   return 0; // HEAT_VENT cost is Free (Mental check); picker only routes identity
 }
 // Each action whose mechanics include rolling dice maps to a roll
@@ -3792,7 +3792,30 @@ function actionRollKind(k) {
   }
 }
 handlers["open-roller"] = ({ id, k }) => {
-  pushModal("dice-roller", { id: Number(id), k: k || null });
+  const rid = Number(id);
+  const extraData = {};
+  if (k === "SALVO") {
+    // Carry targetIds into roller so the overflow chip can be displayed.
+    const tids = state.modal?.data?.targetIds || [];
+    if (tids.length > 0) {
+      extraData.targetIds = tids;
+      const r = findBattleRobot(state.activeBattle, rid);
+      const pilot = _pickedPilot && _pickedPilot !== "MANUAL" && r
+        ? (() => {
+            const cp = (r.cockpitPilots || []).find(c => `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot);
+            return cp ? (state.pilots || []).find(p => p.id === cp.pilotId) : null;
+          })()
+        : null;
+      const mental = pilot?.mental || 0;
+      const overflow = Math.max(0, tids.length - mental);
+      if (overflow > 0) {
+        // Pre-apply the mental overflow reduction (targets > mental → −overflow per attack).
+        _roller.poolBase = Math.max(0, 4 - overflow);
+        extraData.salvoOverflow = overflow;
+      }
+    }
+  }
+  pushModal("dice-roller", { id: rid, k: k || null, ...extraData });
 };
 let _pickedPilot = null;
 handlers["pick-pilot"] = ({ pilot }) => {
@@ -3819,10 +3842,7 @@ handlers["resolve-action"] = ({ id, k }) => {
     return;
   }
   if (k === "PASS") {
-    r.pilotTokens = 0;
-    r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, pilotStrain: 0 }));
-    state.activeBattle.priority = state.activeBattle.priority === "P1" ? "P2" : "P1";
-    showToast("PASSED — pilot strain cleared.");
+    handlers["pass-priority"]({ side: r.side || state.activeBattle.priority || "P1" });
   } else if (k === "SHIELD_RECOVERY") {
     if (r.capacitorsRemaining > 0 && r.shieldsCurrent < r.shieldsMax) {
       r.capacitorsRemaining--;
@@ -3977,7 +3997,8 @@ handlers["resolve-action"] = ({ id, k }) => {
       }
       let pilotStrainMsg = "";
       if (actionShowsPilotPicker(k)) {
-        const cost = actionPilotStrainCost(k);
+        const salvoTargetCount = k === "SALVO" ? (state.modal?.data?.targetIds?.length || 1) : 1;
+        const cost = actionPilotStrainCost(k, salvoTargetCount);
         if (cost > 0 && _pickedPilot && _pickedPilot !== "MANUAL") {
           const cp = (r.cockpitPilots || []).find(c =>
             `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
@@ -3986,7 +4007,7 @@ handlers["resolve-action"] = ({ id, k }) => {
             cp.pilotStrain = (cp.pilotStrain || 0) + cost;
             const pilot = (state.pilots || []).find(x => x.id === cp.pilotId);
             const pilotName = pilot ? pilot.name : "pilot";
-            pilotStrainMsg = `, +1 PStrain (${pilotName})`;
+            pilotStrainMsg = `, +${cost} PStrain (${pilotName})`;
             // KO threshold: 5 + training. Mark slot KO'd; picker + render
             // surface that the pilot is out.
             const koThreshold = 5 + (pilot?.training || 0) + calcPilotStrainBonus(r, cp);
@@ -4247,11 +4268,13 @@ let renderDiceRoller = function (rid, k) {
     .reduce((sum, c) => sum + (c.dice || 0), 0);
   const total = _roller.poolBase + enabledChipDice;
   const a = k ? ACTIONS[k] : null;
+  const salvoOverflow = state.modal?.data?.salvoOverflow || 0;
   return `
     <h2>🎲 ${a ? a.label.toUpperCase() : "ROLL DICE"} ${rollKind && rollKind !== "GENERIC" ? `<span class="chip">${rollKind}</span>` : ""}</h2>
     <p style="font-size:12px; color:var(--on-surface-muted)">
       ${a ? "Pool starts at your base attack/skill dice. Toggle each chip below if it applies. The roller shows hits; you read damage at the table." : "Generic d6 pool for ad-hoc rule checks."}
     </p>
+    ${salvoOverflow > 0 ? `<span class="chip red" style="margin-top:6px; display:inline-block">Salvo Overflow −${salvoOverflow}</span>` : ""}
 
     <div class="label-small label-cyan" style="margin-top:10px">POOL</div>
     <div class="row-gap" style="margin-top:4px">
@@ -4624,13 +4647,22 @@ let renderCompSheet = function (rid, cid) {
   `;
 };
 handlers["bump-comp-hp"] = ({ id, cid, d }) => {
-  const r = findBattleRobot(state.activeBattle, id);
-  const c = r.components.find(x => x.componentId === Number(cid));
+  const rid = Number(id);
+  const cidNum = Number(cid);
+  const r = findBattleRobot(state.activeBattle, rid);
+  const c = r.components.find(x => x.componentId === cidNum);
   if (!c) return;
-  c.hpCurrent = Math.max(0, Math.min(c.hpMax, c.hpCurrent + parseInt(d, 10)));
-  if (c.hpCurrent <= 0 && c.hpMax > 0) c.isDestroyed = true;
+  const delta = parseInt(d, 10);
+  if (delta < 0 && c.hpMax > 0 && (c.hpCurrent + delta) <= 0) {
+    // Decrement would reach 0 — route through pipeline so Frame Save fires.
+    applyDamage(rid, cidNum, Math.abs(delta), "Manual", {});
+    // applyDamage calls dbPut + render internally; just reopen the sheet.
+    pushModal("comp-sheet", { id: rid, cid: cidNum });
+    return;
+  }
+  c.hpCurrent = Math.max(0, Math.min(c.hpMax, c.hpCurrent + delta));
   dbPut("battles", state.activeBattle);
-  pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
+  pushModal("comp-sheet", { id: rid, cid: cidNum });
 };
 handlers["repair-comp"] = ({ id, cid }) => {
   const r = findBattleRobot(state.activeBattle, id);
