@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.32 (2026-06-06)
+  Version: 0.0.33 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2030,6 +2030,7 @@ handlers["pass-priority"] = () => {
     for (const robot of [...(b.p1Robots || []), ...(b.p2Robots || [])]) {
       robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
       robot.gspdSpent = 0;
+      robot.pendingParryReductions = 0;
       const cap = robot.capacitorsMax ?? 0;
       robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
       // Shutdown-this-round clears at round advance; robot can act again.
@@ -2662,7 +2663,7 @@ let renderActionResolve = function (rid, k) {
 // Per spec: these four actions surface the pilot picker for pilot-strain routing.
 // (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
 function actionShowsPilotPicker(k) {
-  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE";
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY";
 }
 // True if the robot has at least one equipped melee weapon on a
 // non-destroyed component (item with "Melee" in its keywords array).
@@ -2680,7 +2681,7 @@ function robotHasMeleeWeapon(r) {
 // SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
 // per-target multiplication ships with the per-target dice flow in stage 6.
 function actionPilotStrainCost(k) {
-  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE") return 1;
+  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY") return 1;
   return 0; // HEAT_VENT cost is Free (Mental check); picker only routes identity
 }
 // Each action whose mechanics include rolling dice maps to a roll
@@ -2794,6 +2795,14 @@ handlers["resolve-action"] = ({ id, k }) => {
       // the table; the toast just flags the rule violation.
       if (k === "MELEE_ASSAULT" && !robotHasMeleeWeapon(r)) {
         showToast("No melee weapons equipped — resolve effects manually at the table.");
+      }
+      // Parry: bump a counter so the table can recall how many parries
+      // are stacking against the incoming attacker this round. Webapp
+      // doesn't track the attacker's roll, so the +1 attacker-threshold
+      // gets applied at the table.
+      if (k === "PARRY") {
+        r.pendingParryReductions = (r.pendingParryReductions || 0) + 1;
+        showToast(`Parry queued (×${r.pendingParryReductions}) — +1 to attacker's threshold per parry.`);
       }
       // Salvo / Strafe / Melee Assault: per-target tokens. Mental check
       // trigger only applies to ranged (Salvo / Strafe).

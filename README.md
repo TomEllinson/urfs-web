@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.32 — 2026-06-06
+v0.0.33 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.33** (2026-06-06): Parry now bumps a
+  `pendingParryReductions` counter on resolve and toasts the +1
+  attacker-threshold rule for table-time application. Counter
+  resets at round advance. Pilot picker + strain routing match
+  Hip Shot / Quick Strike.
 - **v0.0.32** (2026-06-06): Quick Strike now routes pilot strain
   through the picker (cost 1) — the MELEE mirror of Hip Shot from
   v0.0.31.

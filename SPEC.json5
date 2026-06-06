@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.32",
+    current_version: "0.0.33",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -385,8 +385,12 @@
       id: "dice.parry_threshold_reduce",
       summary: "Parry: reaction. Reduces incoming melee hit threshold by 1.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Parry mid-resolve subtracts 1 hit from the attacker's roll.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. DECISION_LOG: attacker's roll isn't modeled in webapp (rolls happen at the table), so the literal 'subtract 1 hit from attacker's roll' can't be auto-applied here. Ship as: PARRY in pilot picker + cost map + reaction budget; on RESOLVE bump r.pendingParryReductions counter and toast the +1 attacker-threshold rule. Player applies the reduction at the table." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.33. PARRY added to actionShowsPilotPicker + actionPilotStrainCost. Resolve-action branch increments r.pendingParryReductions and toasts 'Parry queued (×N) — +1 to attacker's threshold per parry'. New field initialized in buildBattleRobotState (implicit — undefined treated as 0); both round-advance paths reset it to 0. 3 phases verified: 1st parry→counter 1 + sysStrain 1 + reactions 1/2; 2nd parry→counter 2 + reactions 2/2; round-advance→counter 0." },
+      ],
     },
     {
       id: "dice.boost_dodge_fuel",
