@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.40 — 2026-06-06
+v0.0.41 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.41** (2026-06-06): Crouched ranged bonus verification —
+  the +2 CROUCHED chip on RANGED rolls was already wired since
+  v0.0.2's DiceTalentChips port. Empty / CROUCHED+RANGED /
+  CROUCHED+MELEE all behave per spec.
 - **v0.0.40** (2026-06-06): Pivot facing wired. New `facingDegrees`
   field per battle robot. PIVOT action gets a rotation picker
   (±90° / 0° / 180° when flying); on resolve the facing rotates

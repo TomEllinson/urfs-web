@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.40",
+    current_version: "0.0.41",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -481,8 +481,12 @@
       id: "status.crouched_ranged_bonus",
       summary: "CROUCHED status: +2 dice when ranged-attacking from cover.",
       depends_on: ["dice.salvo_per_target_plus_mental"],
-      status: "pending",
+      status: "done",
       acceptance: "CROUCHED chip in dice roller adds +2 dice.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. rollerComputeChips already emits a '+2 CROUCHED · grabbed' chip on RANGED rollKinds when r.statusEffects includes 'CROUCHED' — shipped 0.0.2 with the Dice Talent Chips port. Verification slice." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.41 (no code changes — verification). 3 cases: empty statusEffects → no chip emitted; statusEffects: ['CROUCHED'] + rollKind RANGED → chip 'crouched' with dice=2; CROUCHED + rollKind MELEE → no chip (ranged-only). All paths working per rulebook L264." },
+      ],
     },
     {
       id: "status.grappling_grab_break",
