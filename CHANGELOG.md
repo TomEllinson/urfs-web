@@ -121,10 +121,26 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.45 — 2026-06-06
+v0.0.46 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.46** (2026-06-06): Stopgap before a planned parity sprint
+  to bring the webapp to full Android-app feature depth (target
+  weekend 2026-06-07). Three small fixes shipped now:
+  (1) Core component is no longer labelled "facing FRONT" — it
+  occupies all six facings per rulebook L82-84. The editor row
+  reads "all facings" and the per-component edit modal hides the
+  facing dropdown for Core.
+  (2) Modules now carry a `category` field (Power, Fuel, Defense,
+  Cockpit, Mounts, Mobility, Frame) and the module picker has a
+  category-chip row + a live search input on top. Search filters
+  by name OR description.
+  (3) Module picker cards surface more stats inline (Boost / Glide
+  / shield+armor multipliers / fuel cap / cockpit slots / etc.)
+  and meta tags (Toggleable, Stackable, Requires …). Still not at
+  full Android parity for the mechanical-effects bullet list —
+  the parity sprint covers that.
 - **v0.0.45** (2026-06-06): Equipment editor sticks. Tapping a
   keyword chip used to wipe the un-saved NAME / SIL / NOTES fields
   because the chip toggle triggered a full re-render that re-read

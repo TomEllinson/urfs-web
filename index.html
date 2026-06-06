@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.45 (2026-06-06)
+  Version: 0.0.46 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -463,37 +463,38 @@
 // bearing modules for v0.0.1). Tom can paste the full pack into the
 // MODULES constant any time; the loader reads it as a flat list.
 // ────────────────────────────────────────────────────────────────────
+const MODULE_CATEGORIES = ["Power","Fuel","Defense","Cockpit","Mounts","Mobility","Frame"];
 const MODULES = [
-  { id: "stable_reactor",      name: "Stable Reactor",       weight: 2, power: 25, definitionLimit: ["CORE","UTILITY"], description: "+25 Power. Core/Utility only." },
-  { id: "aux_reactor",         name: "Aux Reactor",          weight: 1, power: 10, definitionLimit: [], description: "+10 Power. Auxiliary support reactor." },
-  { id: "volatile_reactor",    name: "Volatile Reactor",     weight: 1, power: 30, definitionLimit: ["CORE","UTILITY"], description: "+30 Power. Explodes if its component is destroyed.", explosiveDamage: 1 },
-  { id: "fuel_powered_generator", name: "Fuel-powered Generator", weight: 1, power: 10, definitionLimit: [], description: "+10 Power, burns fuel each round.", fuelConsumption: 1 },
-  { id: "fuel_tank",           name: "Fuel Tank",            weight: 1, power: 0,  definitionLimit: [], description: "+10 Fuel Capacity.", fuelCapacity: 10, toggleable: true },
-  { id: "capacitor_bank",      name: "Capacitor Bank",       weight: 1, power: 0,  definitionLimit: [], description: "Adds 2 Capacitors. Each remaining +1 Shutdown die.", emergencyShutdownBonus: 1, maxCopies: -1, stackable: true },
-  { id: "shield_gen",          name: "Shield Generator",     weight: 2, power: -10, definitionLimit: ["CORE","UTILITY"], description: "+Silhouette shields. Core/Utility only.", shieldsMultiplier: 1, toggleable: true },
-  { id: "standard_cockpit",    name: "Standard Cockpit",     weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "Pilot seat. Weight 1, Power -2.", cockpitSlots: 1 },
-  { id: "open_air_cockpit",    name: "Open-Air Cockpit",     weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+3 dice on Maneuver / Ranged.", cockpitSlots: 1 },
-  { id: "motion_cockpit",      name: "Motion-Control Cockpit", weight: 2, power: -5, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+3 dice on Physical-stat checks.", cockpitSlots: 1 },
-  { id: "ai_core",             name: "A.I. Core",            weight: 0, power: -10, definitionLimit: ["CORE","HEAD","UTILITY"], description: "AI pilot. Toggleable; off ≠ shutdown.", cockpitSlots: 1, toggleable: true },
-  { id: "armor",               name: "Armor",                weight: 1, power: 0,  definitionLimit: [], description: "+1× Sil component armor.", armorMultiplier: 1, stackable: true },
-  { id: "heavy_armor",         name: "Heavy Armor",          weight: 3, power: 0,  definitionLimit: [], description: "+3× Sil component armor.", armorMultiplier: 3, stackable: true },
-  { id: "composite_armor",     name: "Composite Armor",      weight: 0, power: 0,  definitionLimit: [], description: "+1× Sil component armor, weightless.", armorMultiplier: 1, stackable: true },
-  { id: "armor_coating",       name: "Armor Coating",        weight: 1, power: 0,  definitionLimit: [], description: "Immune to Energy at full armor.", requires: ["armor","heavy_armor","composite_armor"], maxPerComponent: 1 },
-  { id: "manipulator",         name: "Manipulator",          weight: 1, power: -2, definitionLimit: ["ARM"], description: "Hand. Required for weapons.", maxPerComponent: 1 },
-  { id: "internal_weapon_socket", name: "Internal Weapon Socket", weight: 0, power: -2, definitionLimit: [], description: "Mounts a Mount-Point ranged weapon, one chosen facing.", maxCopies: -1 },
-  { id: "fixed_external_socket",  name: "Fixed External Equipment Socket", weight: 0, power: 0, definitionLimit: [], description: "Mounts a Mount-Point weapon, one chosen facing.", maxCopies: -1 },
-  { id: "swivel_weapon_socket",   name: "Swivel Weapon Socket", weight: 1, power: -1, definitionLimit: [], description: "Mounts a Mount-Point weapon; fires into base + 2 adjacent arcs.", maxCopies: -1 },
-  { id: "holster_point",       name: "Holster Point",        weight: 0, power: 0, definitionLimit: [], description: "Stows a held weapon for Draw.", maxCopies: -1 },
-  { id: "tether_socket",       name: "Tether Socket",        weight: 0, power: -1, definitionLimit: [], description: "Mounts Tethered equipment.", maxCopies: -1 },
-  { id: "booster",             name: "Booster",              weight: 1, power: 0, definitionLimit: [], description: "+1 Boost Power.", boost: 1, stackable: true },
-  { id: "high_output_booster", name: "High Output Booster",  weight: 2, power: -2, definitionLimit: [], description: "+3 Boost Power.", boost: 3 },
-  { id: "wings",               name: "Wing/Aerodynamic Package", weight: 0, power: 0, definitionLimit: [], description: "+1 Glide.", glide: 1, stackable: true },
-  { id: "wheels",              name: "Wheels",               weight: 1, power: -2, definitionLimit: ["LEG"], description: "Ground speed wheels. Each wheel = ½×Sil SU.", groundSpeedMultiplier: 0.5, maxPerComponent: 2 },
-  { id: "hover_system",        name: "Hover System",         weight: 1, power: -5, definitionLimit: [], description: "Sets altitude floor.", stackable: true },
-  { id: "lift_enhancement",    name: "Lift Enhancement",     weight: 1, power: -1, definitionLimit: [], description: "+2 Max Load.", stackable: true },
-  { id: "horizontal_framing",  name: "Horizontal Framing",   weight: 0, power: 0, definitionLimit: ["CORE"], description: "Sil halved (ceil) for LoF + cover. Quadruped/centaur chassis." },
-  { id: "leg_attack_system",   name: "Leg/Head Attack System", weight: 1, power: 0, definitionLimit: ["LEG","HEAD"], description: "Lets this component melee like an arm." },
-  { id: "inertia_driver",      name: "Inertia Driver",       weight: 1, power: 0, definitionLimit: ["ARM"], description: "Pre-melee fuel spend → bonus dice." },
+  { id: "stable_reactor",      name: "Stable Reactor",       category: "Power",    weight: 2, power: 25, definitionLimit: ["CORE","UTILITY"], description: "+25 Power. Core/Utility only." },
+  { id: "aux_reactor",         name: "Aux Reactor",          category: "Power",    weight: 1, power: 10, definitionLimit: [], description: "+10 Power. Auxiliary support reactor." },
+  { id: "volatile_reactor",    name: "Volatile Reactor",     category: "Power",    weight: 1, power: 30, definitionLimit: ["CORE","UTILITY"], description: "+30 Power. Explodes if its component is destroyed.", explosiveDamage: 1 },
+  { id: "fuel_powered_generator", name: "Fuel-powered Generator", category: "Power", weight: 1, power: 10, definitionLimit: [], description: "+10 Power, burns fuel each round.", fuelConsumption: 1 },
+  { id: "fuel_tank",           name: "Fuel Tank",            category: "Fuel",     weight: 1, power: 0,  definitionLimit: [], description: "+10 Fuel Capacity.", fuelCapacity: 10, toggleable: true },
+  { id: "capacitor_bank",      name: "Capacitor Bank",       category: "Defense",  weight: 1, power: 0,  definitionLimit: [], description: "Adds 2 Capacitors. Each remaining +1 Shutdown die.", emergencyShutdownBonus: 1, maxCopies: -1, stackable: true },
+  { id: "shield_gen",          name: "Shield Generator",     category: "Defense",  weight: 2, power: -10, definitionLimit: ["CORE","UTILITY"], description: "+Silhouette shields. Core/Utility only.", shieldsMultiplier: 1, toggleable: true },
+  { id: "standard_cockpit",    name: "Standard Cockpit",     category: "Cockpit",  weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "Pilot seat. Weight 1, Power -2.", cockpitSlots: 1 },
+  { id: "open_air_cockpit",    name: "Open-Air Cockpit",     category: "Cockpit",  weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+3 dice on Maneuver / Ranged.", cockpitSlots: 1 },
+  { id: "motion_cockpit",      name: "Motion-Control Cockpit", category: "Cockpit", weight: 2, power: -5, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+3 dice on Physical-stat checks.", cockpitSlots: 1 },
+  { id: "ai_core",             name: "A.I. Core",            category: "Cockpit",  weight: 0, power: -10, definitionLimit: ["CORE","HEAD","UTILITY"], description: "AI pilot. Toggleable; off ≠ shutdown.", cockpitSlots: 1, toggleable: true },
+  { id: "armor",               name: "Armor",                category: "Defense",  weight: 1, power: 0,  definitionLimit: [], description: "+1× Sil component armor.", armorMultiplier: 1, stackable: true },
+  { id: "heavy_armor",         name: "Heavy Armor",          category: "Defense",  weight: 3, power: 0,  definitionLimit: [], description: "+3× Sil component armor.", armorMultiplier: 3, stackable: true },
+  { id: "composite_armor",     name: "Composite Armor",      category: "Defense",  weight: 0, power: 0,  definitionLimit: [], description: "+1× Sil component armor, weightless.", armorMultiplier: 1, stackable: true },
+  { id: "armor_coating",       name: "Armor Coating",        category: "Defense",  weight: 1, power: 0,  definitionLimit: [], description: "Immune to Energy at full armor.", requires: ["armor","heavy_armor","composite_armor"], maxPerComponent: 1 },
+  { id: "manipulator",         name: "Manipulator",          category: "Mounts",   weight: 1, power: -2, definitionLimit: ["ARM"], description: "Hand. Required for weapons.", maxPerComponent: 1 },
+  { id: "internal_weapon_socket", name: "Internal Weapon Socket", category: "Mounts", weight: 0, power: -2, definitionLimit: [], description: "Mounts a Mount-Point ranged weapon, one chosen facing.", maxCopies: -1 },
+  { id: "fixed_external_socket",  name: "Fixed External Equipment Socket", category: "Mounts", weight: 0, power: 0, definitionLimit: [], description: "Mounts a Mount-Point weapon, one chosen facing.", maxCopies: -1 },
+  { id: "swivel_weapon_socket",   name: "Swivel Weapon Socket", category: "Mounts", weight: 1, power: -1, definitionLimit: [], description: "Mounts a Mount-Point weapon; fires into base + 2 adjacent arcs.", maxCopies: -1 },
+  { id: "holster_point",       name: "Holster Point",        category: "Mounts",   weight: 0, power: 0, definitionLimit: [], description: "Stows a held weapon for Draw.", maxCopies: -1 },
+  { id: "tether_socket",       name: "Tether Socket",        category: "Mounts",   weight: 0, power: -1, definitionLimit: [], description: "Mounts Tethered equipment.", maxCopies: -1 },
+  { id: "booster",             name: "Booster",              category: "Mobility", weight: 1, power: 0, definitionLimit: [], description: "+1 Boost Power.", boost: 1, stackable: true },
+  { id: "high_output_booster", name: "High Output Booster",  category: "Mobility", weight: 2, power: -2, definitionLimit: [], description: "+3 Boost Power.", boost: 3 },
+  { id: "wings",               name: "Wing/Aerodynamic Package", category: "Mobility", weight: 0, power: 0, definitionLimit: [], description: "+1 Glide.", glide: 1, stackable: true },
+  { id: "wheels",              name: "Wheels",               category: "Mobility", weight: 1, power: -2, definitionLimit: ["LEG"], description: "Ground speed wheels. Each wheel = ½×Sil SU.", groundSpeedMultiplier: 0.5, maxPerComponent: 2 },
+  { id: "hover_system",        name: "Hover System",         category: "Mobility", weight: 1, power: -5, definitionLimit: [], description: "Sets altitude floor.", stackable: true },
+  { id: "lift_enhancement",    name: "Lift Enhancement",     category: "Mobility", weight: 1, power: -1, definitionLimit: [], description: "+2 Max Load.", stackable: true },
+  { id: "horizontal_framing",  name: "Horizontal Framing",   category: "Frame",    weight: 0, power: 0, definitionLimit: ["CORE"], description: "Sil halved (ceil) for LoF + cover. Quadruped/centaur chassis." },
+  { id: "leg_attack_system",   name: "Leg/Head Attack System", category: "Frame",  weight: 1, power: 0, definitionLimit: ["LEG","HEAD"], description: "Lets this component melee like an arm." },
+  { id: "inertia_driver",      name: "Inertia Driver",       category: "Frame",    weight: 1, power: 0, definitionLimit: ["ARM"], description: "Pre-melee fuel spend → bonus dice." },
 ];
 const MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
 
@@ -1392,7 +1393,7 @@ let renderRobotEditor = function (id) {
         <div class="meta" style="font-size:11px; color:var(--on-surface-muted); margin-top:4px">
           ${(c.modules || []).length} modules
           · ${(c.equipment || []).length} equipment
-          · facing ${c.facing || "FRONT"}
+          · ${c.definition === "CORE" ? "all facings" : `facing ${c.facing || "FRONT"}`}
         </div>
       </div>
     `).join("")}
@@ -1521,12 +1522,19 @@ let renderEditComponent = function (rid, cid) {
       <label>NAME</label>
       <input id="ec-name" value="${escapeHtml(c.name)}" />
     </div>
-    <div class="field">
-      <label>FACING</label>
-      <select id="ec-facing">
-        ${FACINGS.map(f => `<option ${f===c.facing?'selected':''}>${f}</option>`).join("")}
-      </select>
-    </div>
+    ${c.definition === "CORE" ? `
+      <div class="field">
+        <label>FACING</label>
+        <div class="meta" style="padding:8px 0">Core occupies all facings (rulebook L82-84).</div>
+      </div>
+    ` : `
+      <div class="field">
+        <label>FACING</label>
+        <select id="ec-facing">
+          ${FACINGS.map(f => `<option ${f===c.facing?'selected':''}>${f}</option>`).join("")}
+        </select>
+      </div>
+    `}
     <div class="label-small label-cyan" style="margin-top:8px">MODULES (${(c.modules || []).length})</div>
     ${(c.modules || []).map((m, i) => {
       const def = MODULES_BY_ID[m.moduleId];
@@ -1557,6 +1565,8 @@ handlers["modal-close-component"] = ({ rid, cid }) => {
   pushModal("robot-editor", { id: Number(rid) });
 };
 handlers["add-module"] = ({ rid, cid }) => {
+  modulePickerUI.search = "";
+  modulePickerUI.category = "All";
   pushModal("module-picker", { rid: Number(rid), cid: Number(cid) });
 };
 handlers["remove-module"] = ({ rid, cid, idx }) => {
@@ -1568,35 +1578,103 @@ handlers["remove-module"] = ({ rid, cid, idx }) => {
   render();
 };
 
+// Module picker UI state — persists across the in-modal re-renders triggered
+// by search/category chip clicks. Reset on modal open.
+const modulePickerUI = { search: "", category: "All" };
 let renderModulePicker = function (rid, cid) {
   const r = state.robots.find(x => x.id === rid);
   const c = r?.components.find(c => c.tempId === cid);
   if (!c) return "<p>?</p>";
   const installedIds = (c.modules || []).map(m => m.moduleId);
+  const q = (modulePickerUI.search || "").trim().toLowerCase();
+  const cat = modulePickerUI.category;
   const eligible = MODULES.filter(m => {
     if (m.definitionLimit.length > 0 && !m.definitionLimit.includes(c.definition)) return false;
     if (m.maxPerComponent && m.maxPerComponent !== -1) {
       const have = installedIds.filter(i => i === m.id).length;
       if (have >= m.maxPerComponent) return false;
     }
+    if (cat !== "All" && m.category !== cat) return false;
+    if (q && !(m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q))) return false;
     return true;
   });
+  const categoryChips = ["All", ...MODULE_CATEGORIES].map(name => {
+    const active = name === cat;
+    return `<span class="chip ${active ? "" : "muted"}" data-act="module-picker-cat" data-cat="${name}">${name}</span>`;
+  }).join("");
+  const cardFor = (m) => {
+    const stats = [
+      `W ${m.weight}`,
+      `P ${m.power >= 0 ? "+" : ""}${m.power}`,
+    ];
+    if (m.fuelCapacity) stats.push(`+${m.fuelCapacity} Fuel Cap`);
+    if (m.fuelConsumption) stats.push(`-${m.fuelConsumption} Fuel/rd`);
+    if (m.shieldsMultiplier) stats.push(`+${m.shieldsMultiplier}×Sil Shields`);
+    if (m.armorMultiplier) stats.push(`+${m.armorMultiplier}×Sil Armor`);
+    if (m.boost) stats.push(`+${m.boost} Boost`);
+    if (m.glide) stats.push(`+${m.glide} Glide`);
+    if (m.groundSpeedMultiplier) stats.push(`+${m.groundSpeedMultiplier}×Sil GSPD`);
+    if (m.cockpitSlots) stats.push(`${m.cockpitSlots} Cockpit Slot`);
+    if (m.explosiveDamage) stats.push(`Explosive ${m.explosiveDamage}`);
+    if (m.emergencyShutdownBonus) stats.push(`+${m.emergencyShutdownBonus} Shutdown die`);
+    const tags = [];
+    if (m.toggleable) tags.push("Toggleable");
+    if (m.stackable) tags.push("Stackable");
+    if (m.maxCopies === -1) tags.push("Unlimited copies");
+    if (m.maxPerComponent === 1) tags.push("Max 1 per component");
+    if (m.requires) tags.push(`Requires ${m.requires.join(" / ")}`);
+    if (m.definitionLimit && m.definitionLimit.length > 0) tags.push(`Only: ${m.definitionLimit.join(" / ")}`);
+    return `
+      <div class="card tight" data-act="install-module" data-rid="${rid}" data-cid="${cid}" data-mid="${m.id}">
+        <div class="row-between" style="align-items:flex-start; gap:8px">
+          <div style="flex:1">
+            <strong>${escapeHtml(m.name)}</strong>
+            <span class="chip muted" style="font-size:10px; margin-left:6px">${escapeHtml(m.category || "Misc")}</span>
+          </div>
+          <span class="chip muted" style="white-space:nowrap">${stats.slice(0,2).join(" · ")}</span>
+        </div>
+        ${stats.length > 2 ? `<div class="meta" style="font-size:11px; margin-top:4px; color:var(--cyan)">${stats.slice(2).join(" · ")}</div>` : ""}
+        <div class="meta" style="font-size:12px; margin-top:6px; line-height:1.45">${escapeHtml(m.description)}</div>
+        ${tags.length ? `<div class="meta" style="font-size:10px; margin-top:6px; color:var(--on-surface-muted)">${tags.join(" • ")}</div>` : ""}
+      </div>
+    `;
+  };
   return `
     <h2>PICK A MODULE</h2>
     <p>${escapeHtml(c.name)} · ${c.definition}</p>
-    ${eligible.map(m => `
-      <div class="card tight" data-act="install-module" data-rid="${rid}" data-cid="${cid}" data-mid="${m.id}">
-        <div class="row-between">
-          <strong>${escapeHtml(m.name)}</strong>
-          <span class="chip muted">W ${m.weight} · P ${m.power >= 0 ? "+" : ""}${m.power}</span>
-        </div>
-        <div class="meta" style="font-size:11px; margin-top:4px">${escapeHtml(m.description)}</div>
-      </div>
-    `).join("")}
+    <div class="field">
+      <input id="module-search" type="search" placeholder="Search name or description" value="${escapeHtml(modulePickerUI.search)}" oninput="window.onModulePickerSearch(this.value)" />
+    </div>
+    <div class="row-gap" style="flex-wrap:wrap; margin-bottom:8px">${categoryChips}</div>
+    ${eligible.length === 0
+      ? `<p class="meta">No modules match — clear the filter to see all eligible.</p>`
+      : eligible.map(cardFor).join("")}
     <div class="actions">
       <button class="btn ghost" data-act="cancel-module-picker" data-rid="${rid}" data-cid="${cid}">CANCEL</button>
     </div>
   `;
+};
+handlers["module-picker-cat"] = ({ cat }) => {
+  const searchEl = document.getElementById("module-search");
+  if (searchEl) modulePickerUI.search = searchEl.value || "";
+  modulePickerUI.category = cat;
+  render();
+};
+// Debounced search re-render so each keystroke doesn't thrash the modal.
+let _modulePickerSearchTimer = null;
+window.onModulePickerSearch = function (v) {
+  modulePickerUI.search = v || "";
+  clearTimeout(_modulePickerSearchTimer);
+  _modulePickerSearchTimer = setTimeout(() => {
+    render();
+    // Restore caret position + focus on the new (re-rendered) input.
+    const el = document.getElementById("module-search");
+    if (el) {
+      el.focus();
+      const pos = el.value.length;
+      el.setSelectionRange?.(pos, pos);
+    }
+  }, 120);
 };
 handlers["install-module"] = ({ rid, cid, mid }) => {
   const r = state.robots.find(x => x.id === Number(rid));
