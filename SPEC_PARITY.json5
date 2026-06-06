@@ -415,6 +415,126 @@
     },
   ],
 
+  // ──────────────────────────────────────────────────────────────────
+  // STAGE 8 — Out-of-scope items pulled back IN at Tom's request (2026-06-06)
+  // after the 23-item parity sprint cleared. Driven by the same
+  // /subagent-driven-development loop.
+  // ──────────────────────────────────────────────────────────────────
+  stage8: {
+    id: "stage8_out_of_scope_pulled_in",
+    summary: "Onboarding, portraits, loadout sheet, robot compare, rulebook, action log, content packs, 3D schematic.",
+    items: [
+      {
+        id: "ux.onboarding_overlay",
+        status: "pending",
+        size: "S",
+        summary: "First-run welcome overlay walks new testers through the four tabs.",
+        acceptance: [
+          "On first load (no IndexedDB records OR explicit onboardingSeen flag missing), an overlay covers the screen with a 3-step tour: 1) Garage build, 2) Forces deploy, 3) Battle resolve.",
+          "Dismissal sets settings.onboardingSeen = true.",
+          "A 'Help' / '?' affordance on the GARAGE tab re-opens the overlay anytime.",
+        ],
+        android_refs: ["ui/onboarding/OnboardingOverlay.kt"],
+      },
+      {
+        id: "ux.image_portraits",
+        status: "pending",
+        size: "S",
+        summary: "Pilots + equipment can carry a photo (data URL) like robots already do.",
+        acceptance: [
+          "Pilot editor gains a PICK PHOTO button + thumbnail slot mirroring the robot editor.",
+          "Equipment editor gains the same.",
+          "Photos stored as data URL on the entity (max 512×512 jpeg, same compression path as robot).",
+          "Display: pilot list cards + force-editor pilot pickers + comp-sheet cockpit rows show the portrait.",
+          "Equipment list cards show the portrait thumbnail.",
+        ],
+        original_webapp_refs: ["index.html existing picker for robot — clone the pattern"],
+      },
+      {
+        id: "battle.loadout_sheet",
+        status: "pending",
+        size: "S",
+        summary: "Aggregate weapons + equipment sheet for a robot during battle.",
+        acceptance: [
+          "Per-robot battle screen gains a LOADOUT button (next to ACTION SHEET).",
+          "Opens a modal listing EVERY equipment item across all components, grouped by component, with: name, computed damage/range/armor/ammo, broken flag.",
+          "Cap modal: weapons section then guards section then utility/other.",
+        ],
+        android_refs: ["ui/battle/LoadoutSheet.kt"],
+        original_webapp_refs: ["webapp/current line 7126-7247 generateEquipmentCard"],
+      },
+      {
+        id: "garage.robot_compare",
+        status: "pending",
+        size: "M",
+        summary: "Side-by-side stat comparison of two robots.",
+        acceptance: [
+          "Garage list gets a COMPARE button (icon) above the list.",
+          "Tap COMPARE → multi-select mode (tap two robots).",
+          "Opens a modal with two columns: BP / weight / max load / power / fuel / shields / capacitors / strain threshold / GSPD / boost / component count / equipment count.",
+          "Differences highlighted (winner side green chip).",
+        ],
+        android_refs: ["ui/garage/RobotCompareScreen.kt"],
+      },
+      {
+        id: "rules.rulebook_screen",
+        status: "pending",
+        size: "M",
+        summary: "In-app rulebook with search + section deep-link.",
+        acceptance: [
+          "New tab or modal: RULEBOOK. Content: copy rulebook.md from Android assets into a constant in index.html (we already have it implicitly).",
+          "Render as markdown — simple regex-based renderer; ## sections clickable to expand/collapse.",
+          "Search bar filters sections by text content.",
+          "Each action's brief in the action sheet gets a (?) icon that opens the rulebook scrolled to the cited line range.",
+        ],
+        android_refs: ["ui/rulebook/RulebookScreen.kt"],
+      },
+      {
+        id: "battle.action_log_undo",
+        status: "pending",
+        size: "M",
+        summary: "Battle action log + per-step undo. Replaces 'just trust toasts' UX.",
+        acceptance: [
+          "Battle gains an ACTION LOG button. Modal shows last 50 entries: time, robot name, action, outcome (e.g. 'Salvo on Mech X — 4 hits').",
+          "Each entry has an UNDO button that reverts to the snapshot taken before that action.",
+          "Snapshot = deep clone of activeBattle before each resolve-action / applyDamage / round-next.",
+          "Stack capped at 50; oldest pruned.",
+        ],
+        android_refs: ["ui/battle/SchematicBattleViewModel.kt:173-222 recordUndo/undo"],
+      },
+      {
+        id: "data.content_packs",
+        status: "pending",
+        size: "M",
+        summary: "Multi-pack module + talent + keyword catalogs with activation UI.",
+        acceptance: [
+          "Settings modal lists installed packs (initially just 'urfs-core' baked in).",
+          "Per pack: name, contents counts (n modules, n talents, n keywords), ACTIVE toggle.",
+          "IMPORT PACK button accepts a JSON file with the pack schema (id, name, modules[], talents[], keywords[]).",
+          "Deactivating a pack hides its content from all pickers; existing robots with that content show a 'pack inactive' warning chip but remain editable.",
+          "Stored under state.packs in IndexedDB with active flags.",
+        ],
+        android_refs: ["data/ContentPackLoader.kt + ui/settings/SettingsScreen.kt"],
+      },
+      {
+        id: "schematic.three_d_renderer",
+        status: "pending",
+        size: "L",
+        summary: "Interactive 3D schematic — opt-in toggle alongside the existing 2D.",
+        acceptance: [
+          "Schematic block in the robot editor gains a 2D/3D toggle chip.",
+          "3D mode renders the same component tree via a lightweight WebGL/canvas-3D approach (no external deps — pure canvas + 3D math, or a tiny inlined helper).",
+          "Tap to select; drag to orbit; pinch (mobile) / scroll (desktop) to zoom.",
+          "Selected component shows the same edit affordances as 2D.",
+          "Battle screen schematic also gets the toggle.",
+          "Fallback: if WebGL is unavailable, the 3D toggle is hidden — 2D stays.",
+        ],
+        android_refs: ["ui/schematic/Schematic3DRenderer.kt"],
+        notes: "Largest item by far. Tom may prefer to defer if other items consume the weekend.",
+      },
+    ],
+  },
+
   // Items intentionally NOT in this sprint (call out so Tom sees the cuts).
   out_of_scope: [
     "3D schematic renderer (Android has it via OpenGL; webapp keeps 2D only).",
