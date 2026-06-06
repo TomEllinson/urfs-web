@@ -3061,19 +3061,108 @@ handlers["reset-armor"] = ({ id }) => {
 
 // ── Damage pipeline (stage 4) ────────────────────────────────────────
 // applyDamage is the canonical "damage hits a component" entry point.
-// Pipeline: armor absorbs first → breach overflow → Frame Save →
-// destruction + cascade. This slice wires the armor absorption +
-// breach identification. Frame Save dialog ships next.
-function applyDamage(robotId, componentId, amount, type) {
+// Pipeline: shields → Guard equipment → armor_coating → armor → Frame Save.
+// opts.bypassShields — skip shield interception (Penetrating attacks).
+// opts.bypassArmor   — reduce effective armor by this amount for the hit.
+// opts.viaEquipment  — equipment object that dealt damage (for Guard checks).
+function applyDamage(robotId, componentId, amount, type, opts = {}) {
   const r = findBattleRobot(state.activeBattle, robotId);
   if (!r) return { breach: 0 };
   const c = r.components.find(c => (c.componentId ?? c.tempId) === componentId);
   if (!c) return { breach: 0 };
+
+  let remaining = amount;
+
+  // ── Stage 1: Shields ────────────────────────────────────────────────
+  if (!opts.bypassShields && (r.shieldsCurrent || 0) > 0) {
+    const shieldAbsorb = Math.min(r.shieldsCurrent, remaining);
+    r.shieldsCurrent -= shieldAbsorb;
+    remaining -= shieldAbsorb;
+    if (remaining <= 0) {
+      r.damageLog = r.damageLog || [];
+      r.damageLog.push({ when: Date.now(), componentId, amount, type, shieldAbsorb, absorbed: 0, breach: 0 });
+      dbPut("battles", state.activeBattle);
+      showToast(`Shields absorb ${shieldAbsorb} damage. Shields now ${r.shieldsCurrent}/${r.shieldsMax}.`);
+      render();
+      return { shieldAbsorb, absorbed: 0, breach: 0 };
+    }
+    // Partial shield absorption — remainder continues down the pipeline.
+    showToast(`Shields absorb ${shieldAbsorb}. ${remaining} continues to armor.`);
+  }
+
+  // ── Stage 2: Guard equipment ────────────────────────────────────────
+  // Guard equipment on the component intercepts damage before component armor.
+  const guardEq = (c.equipment || []).find(e =>
+    (e.keywords || []).includes("Guard") && (e.armorCurrent ?? 0) > 0
+  );
+  if (guardEq) {
+    // Energy-Reflective Coating: reflect full Energy hit when guard is at full armor.
+    if (type === "Energy"
+        && (guardEq.keywords || []).includes("Energy-Reflective Coating")
+        && guardEq.armorCurrent === guardEq.armorMax) {
+      r.damageLog = r.damageLog || [];
+      r.damageLog.push({ when: Date.now(), componentId, amount, type, result: "reflected" });
+      dbPut("battles", state.activeBattle);
+      showToast(`Energy REFLECTED by ${escapeHtml(guardEq.name || "Guard equipment")}.`);
+      render();
+      return { reflected: true };
+    }
+    // Melee keyword on Guard grants Physical immunity (per calculateEquipmentStats).
+    if (type === "Physical" && (guardEq.keywords || []).includes("Melee")) {
+      r.damageLog = r.damageLog || [];
+      r.damageLog.push({ when: Date.now(), componentId, amount, type, result: "deflected" });
+      dbPut("battles", state.activeBattle);
+      showToast(`Physical DEFLECTED by ${escapeHtml(guardEq.name || "Guard equipment")}.`);
+      render();
+      return { deflected: true };
+    }
+    // Otherwise Guard equipment absorbs up to its armorCurrent.
+    const guardAbsorb = Math.min(guardEq.armorCurrent, remaining);
+    guardEq.armorCurrent -= guardAbsorb;
+    remaining -= guardAbsorb;
+    if (remaining <= 0) {
+      r.damageLog = r.damageLog || [];
+      r.damageLog.push({ when: Date.now(), componentId, amount, type, guardAbsorb, absorbed: 0, breach: 0 });
+      dbPut("battles", state.activeBattle);
+      showToast(`${guardAbsorb} absorbed by ${escapeHtml(guardEq.name || "Guard equipment")}. No breach.`);
+      render();
+      return { guardAbsorb, absorbed: 0, breach: 0 };
+    }
+  }
+
+  // ── Stage 3: Armor Coating (Energy immunity at full armor) ──────────
+  const hasArmorCoating = (c.modules || []).some(m => m.moduleId === "armor_coating");
+  if (hasArmorCoating && type === "Energy" && (c.hpCurrent || 0) === (c.hpMax || 0)) {
+    r.damageLog = r.damageLog || [];
+    r.damageLog.push({ when: Date.now(), componentId, amount, type, result: "coating-absorbed" });
+    dbPut("battles", state.activeBattle);
+    showToast(`Armor Coating absorbs ${remaining} Energy damage (full armor).`);
+    render();
+    return { coatingAbsorbed: true };
+  }
+
+  // ── Stage 4: Component armor (hpCurrent/hpMax legacy naming) ────────
   // Webapp stores armor as hpCurrent/hpMax (legacy v0.0.1 naming).
-  const armorBefore = c.hpCurrent || 0;
-  const absorbed = Math.min(armorBefore, amount);
-  const breach = amount - absorbed;
-  c.hpCurrent = armorBefore - absorbed;
+  let effectiveArmor = c.hpCurrent || 0;
+  const bypass = opts.bypassArmor || 0;
+  if (bypass > 0) {
+    // Penetrating bypass reduces effective armor for this hit.
+    // If bypass overwhelms armor on a non-frame component → outright destroyed.
+    if (bypass >= effectiveArmor && !c.isFrame) {
+      c.hpCurrent = 0;
+      r.damageLog = r.damageLog || [];
+      r.damageLog.push({ when: Date.now(), componentId, amount, type, result: "overwhelmed" });
+      dbPut("battles", state.activeBattle);
+      showToast(`Armor overwhelmed — ${escapeHtml(c.name || c.definition || "component")} destroyed!`);
+      destroyComponent(robotId, componentId);
+      render();
+      return { overwhelmed: true };
+    }
+    effectiveArmor = Math.max(0, effectiveArmor - bypass);
+  }
+  const absorbed = Math.min(effectiveArmor, remaining);
+  const breach = remaining - absorbed;
+  c.hpCurrent = (c.hpCurrent || 0) - absorbed;
   r.damageLog = r.damageLog || [];
   r.damageLog.push({ when: Date.now(), componentId, amount, type, absorbed, breach });
   dbPut("battles", state.activeBattle);

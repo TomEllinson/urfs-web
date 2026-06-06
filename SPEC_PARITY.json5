@@ -251,8 +251,9 @@
       items: [
         {
           id: "battle.shields_intercept",
-          status: "pending",
+          status: "done",
           size: "S",
+          history: [{ when: "2026-06-06", note: "shipped — applyDamage subtracts shields first, full absorb early-returns, opts.bypassShields supported" }],
           summary: "Damage hits shieldsCurrent before armor. Capacitor SHIELD_RECOVERY refills correctly.",
           acceptance: [
             "applyDamage subtracts from shieldsCurrent first (clamped to amount).",
@@ -264,8 +265,9 @@
         },
         {
           id: "battle.damage_type_immunity",
-          status: "pending",
+          status: "done",
           size: "M",
+          history: [{ when: "2026-06-06", note: "shipped — Guard equipment + Energy-Reflective Coating + Melee Physical immunity + armor_coating module Energy absorption + Penetrating overwhelm" }],
           summary: "Damage type → immunity + Energy-Reflective Coating + Armor Coating Energy absorption.",
           acceptance: [
             "Energy damage to a component with armor_coating + full armor = absorbed entirely.",
