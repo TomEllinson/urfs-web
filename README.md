@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.36 — 2026-06-06
+v0.0.37 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.37** (2026-06-06): Equipment broken state surfaces.
+  Damaged-to-0 equipment now dims, gets a strikethrough name and
+  an explicit red BROKEN chip on the comp sheet, and is filtered
+  out of `robotHasMeleeWeapon` so Melee Assault's gate (v0.0.30)
+  treats a broken sword as unequipped.
 - **v0.0.36** (2026-06-06): Capacitor pool end-to-end verified —
   no code changes needed. SHIELD_RECOVERY spends 1 cap for +10
   shields (clamped to max), STRAIN_CLEAR spends 1 cap for −1

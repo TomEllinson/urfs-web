@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.36 (2026-06-06)
+  Version: 0.0.37 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2671,6 +2671,8 @@ function robotHasMeleeWeapon(r) {
   for (const c of (r.components || [])) {
     if (c.isDestroyed) continue;
     for (const e of (c.equipment || [])) {
+      // Broken equipment (armorCurrent <= 0) counts as unequipped.
+      if (e.armorMax > 0 && (e.armorCurrent ?? 0) <= 0) continue;
       const kw = (e.keywords || []).map(s => String(s).toLowerCase());
       if (kw.includes("melee")) return true;
     }
@@ -3319,18 +3321,23 @@ let renderCompSheet = function (rid, cid) {
     ` : ""}
     ${(c.equipment || []).length > 0 ? `
       <div class="label-small" style="margin-top:10px">EQUIPMENT</div>
-      ${c.equipment.map((e, i) => `
-        <div class="card tight">
+      ${c.equipment.map((e, i) => {
+        const broken = e.armorCurrent <= 0;
+        return `
+        <div class="card tight"${broken ? ` style="opacity:0.6"` : ""}>
           <div class="row-between">
-            <strong>${escapeHtml(e.name || ("Equipment " + (i+1)))}</strong>
-            <span class="chip ${e.armorCurrent <= 0 ? "red" : e.armorCurrent < e.armorMax ? "amber" : "muted"}">ARM ${e.armorCurrent}/${e.armorMax}</span>
+            <strong${broken ? ` style="text-decoration:line-through"` : ""}>${escapeHtml(e.name || ("Equipment " + (i+1)))}</strong>
+            <div class="row-gap">
+              ${broken ? `<span class="chip red">BROKEN</span>` : ""}
+              <span class="chip ${broken ? "red" : e.armorCurrent < e.armorMax ? "amber" : "muted"}">ARM ${e.armorCurrent}/${e.armorMax}</span>
+            </div>
           </div>
           <div class="row-gap" style="margin-top:6px">
-            <button class="btn ghost" data-act="bump-eq-arm" data-id="${rid}" data-cid="${cid}" data-ei="${i}" data-d="-1" ${e.armorCurrent <= 0 ? "disabled" : ""}>${e.armorCurrent <= 0 ? "DAMAGED" : "DAMAGE −1"}</button>
+            <button class="btn ghost" data-act="bump-eq-arm" data-id="${rid}" data-cid="${cid}" data-ei="${i}" data-d="-1" ${broken ? "disabled" : ""}>${broken ? "DAMAGED" : "DAMAGE −1"}</button>
             <button class="btn ghost" data-act="repair-eq" data-id="${rid}" data-cid="${cid}" data-ei="${i}" ${e.armorCurrent >= e.armorMax ? "disabled" : ""}>REPAIR</button>
           </div>
-        </div>
-      `).join("")}
+        </div>`;
+      }).join("")}
     ` : ""}
     <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
   `;

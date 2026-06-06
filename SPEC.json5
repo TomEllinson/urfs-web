@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.36",
+    current_version: "0.0.37",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -433,8 +433,12 @@
       id: "equipment.hp_track",
       summary: "Equipment.hpCurrent / hpMax. Take damage → reduce. At 0 → broken (visually struck, unequipped).",
       depends_on: ["damage.recompute_derived_stats"],
-      status: "pending",
+      status: "done",
       acceptance: "Damage equipment in component sheet → HP reduces; at 0, broken chip.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. DECISION_LOG: webapp uses armorCurrent/armorMax naming on equipment (legacy from v0.0.1, parallel to component hpCurrent/hpMax). Keep that. DAMAGE −1 / REPAIR / red-amber-muted ARM chip + DAMAGED disabled button ALL already wired. Adding: explicit BROKEN red chip on row, line-through + dim on broken equipment name, and filter broken equipment out of robotHasMeleeWeapon so Melee Assault gate respects breakage." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.37. comp-sheet equipment rows: card now dims to opacity 0.6 + name gets text-decoration:line-through + adds an explicit red BROKEN chip when armorCurrent <= 0. robotHasMeleeWeapon now skips equipment whose armorMax > 0 && armorCurrent <= 0 — Melee Assault's gate from v0.0.30 now recognizes a broken sword as unequipped. 4 phases verified: working sword → hasMelee true; damage to 0 → hasMelee false + UI shows BROKEN + DAMAGED button; repair → hasMelee true." },
+      ],
     },
     {
       id: "equipment.mount_swap",
