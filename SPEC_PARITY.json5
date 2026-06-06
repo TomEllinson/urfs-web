@@ -201,8 +201,9 @@
         },
         {
           id: "pilot.battle_talent_variants",
-          status: "pending",
+          status: "done",
           size: "M",
+          history: [{ when: "2026-06-06", note: "shipped — 7 new talents wired: Cool Head action, Override + Overclock shutdown buttons, Berserker + Combat Instinct chips, Coolant Vent action, Commander force-passive" }],
           summary: "Wire the action-driven Android talent variants — Cool Head, Override, Overclock, Berserker, Combat Instinct, Coolant Manager, Commander — into the action / strain / shutdown handlers. Required by Tom for full play.",
           acceptance: [
             "Cool Head: action-sheet entry under Incidentals; removes 1 token from any conscious pilot in the cockpit. Guarded by tokens > 0.",

@@ -517,6 +517,13 @@ const TALENTS = [
   { name: "Neural Link",        cost: 7, slots: 2, description: "Physical replaces Mental for Pilot Strain damage AND a Fortitude check on Frame Component destruction.",          statReqs: { mental: 4 } },
   { name: "Quick Troublemaker", cost: 3, slots: 1, description: "Once per game, force an opposing robot's Emergency Shutdown check at +2 difficulty.",                             statReqs: { training: 3 } },
   { name: "Martial Artist",     cost: 4, slots: 1, description: "Unarmed melee = 1d6 + ½ Physical. May Parry without a melee weapon.",                                            statReqs: { physical: 4 } },
+  { name: "Cool Head",          cost: 3, slots: 1, description: "Free Incidental: remove 1 Pilot Strain token from any conscious pilot in this cockpit.",                           statReqs: { mental: 3 } },
+  { name: "Override",           cost: 4, slots: 1, description: "Shutdown reboot variant: roll excess strain as bonus dice; on success +1 HP damage to acting pilot.",             statReqs: { mental: 4 } },
+  { name: "Overclock",          cost: 5, slots: 2, description: "Shutdown reboot variant: 2× Mental d6 at 5+, once per game; +2 HP damage to acting pilot on use.",               statReqs: { mental: 4 } },
+  { name: "Berserker",          cost: 3, slots: 1, description: "+1 die on Melee when System Strain > floor(threshold/2).",                                                        statReqs: { physical: 4 } },
+  { name: "Combat Instinct",    cost: 3, slots: 1, description: "+1 die on any attack when total cockpit strain >= floor(threshold of any pilot / 2).",                            statReqs: { training: 3 } },
+  { name: "Coolant Manager",    cost: 3, slots: 1, description: "Free Incidental: Mental d6 vs 5+, remove 2× hits in System Strain (Heat Vent at 2×).",                           statReqs: { mental: 3 } },
+  { name: "Commander",          cost: 5, slots: 2, description: "Force passive: highest-Mental conscious Commander on a force grants +1 Pilot Strain Threshold to all friendly pilots.", statReqs: { mental: 5 } },
 ];
 
 // ────────────────────────────────────────────────────────────────────
@@ -552,6 +559,8 @@ const ACTIONS = {
   BREAK_FREE:         { label: "Break Free",        bucket: "incidental", brief: "When GRAPPLED: attempt to break free.", cost: "Free", rules: "Attempt to break free of an opposing Robot's grapple." },
   SHIELD_RECOVERY:    { label: "Shield Recovery",   bucket: "incidental", brief: "Spend 1 Capacitor → +10 Shields.", cost: "1 Capacitor", rules: "(L417) Shield Recovery: Toggle to permanently spend 1 Capacitor and recover 10 Shield points." },
   STRAIN_CLEAR:       { label: "Strain Clear",      bucket: "incidental", brief: "Spend 1 Capacitor → −1 System Strain.", cost: "1 Capacitor", rules: "(L420) Spend 1 Capacitor (permanently) to remove 1 System Strain." },
+  COOL_HEAD:          { label: "Cool Head",          bucket: "incidental", brief: "Remove 1 token from any conscious pilot.", cost: "Free Incidental", rules: "Cool Head talent (L—). Free Incidental: remove 1 Pilot Strain token from any conscious pilot in this cockpit. Gated: requires Cool Head pilot." },
+  COOLANT_VENT:       { label: "Coolant Vent",       bucket: "incidental", brief: "Mental d6 vs 5+; remove 2× hits in System Strain.", cost: "Free Incidental", rules: "Coolant Manager talent (L—). Free Incidental: Mental d6 vs 5+, remove 2× hits in System Strain. Gated: requires Coolant Manager pilot." },
 };
 
 // ────────────────────────────────────────────────────────────────────
@@ -2877,7 +2886,16 @@ function pilotTokSummary(r) {
 }
 function renderActionSheet(r) {
   const groups = { primary: [], reaction: [], incidental: [] };
-  for (const [k, a] of Object.entries(ACTIONS)) groups[a.bucket].push([k, a]);
+  // Talent-gated actions: only surface when a conscious pilot has the talent.
+  const consciousTalents = robotConsciousTalents(r);
+  const talentGated = {
+    COOL_HEAD:    "Cool Head",
+    COOLANT_VENT: "Coolant Manager",
+  };
+  for (const [k, a] of Object.entries(ACTIONS)) {
+    if (talentGated[k] && !consciousTalents.has(talentGated[k])) continue;
+    groups[a.bucket].push([k, a]);
+  }
   const budget = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
   const bucketSpent = b => (b === "primary" && budget.primaryUsed >= 1)
                        || (b === "reaction" && budget.reactionsUsed >= 2);
@@ -2898,6 +2916,16 @@ function renderActionSheet(r) {
       </div>
     </div>
   `).join("");
+}
+// Returns a Set of talent names held by at least one conscious (non-KO) cockpit pilot.
+function robotConsciousTalents(r) {
+  const s = new Set();
+  for (const cp of (r.cockpitPilots || [])) {
+    if (cp.isKO || !cp.pilotId) continue;
+    const p = (state.pilots || []).find(x => x.id === cp.pilotId);
+    for (const t of (p?.talents || [])) s.add(t);
+  }
+  return s;
 }
 function bucketIcon(b) {
   return b === "primary" ? "⚡" : b === "reaction" ? "🛡" : "•••";
@@ -3156,6 +3184,19 @@ function renderShutdownReboot(rid, lastRoll) {
     (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Quick Troublemaker")
   );
   const canQTM = qtmPilot && !r.quickTroublemakerUsed;
+  // Override: FD + max(0, systemStrain - threshold) d6 at 5+; on success +1 strain to acting pilot.
+  const overridePilot = (r.cockpitPilots || []).find(cp =>
+    !cp.isKO && cp.pilotId &&
+    (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Override")
+  );
+  // Overclock: 2×Mental d6 at 5+, once per game; +2 strain to acting pilot.
+  const overclockPilot = !r.overclockUsed && (r.cockpitPilots || []).find(cp =>
+    !cp.isKO && cp.pilotId &&
+    (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Overclock")
+  );
+  const excessDice = Math.max(0, (r.systemStrain || 0) - (r.systemStrainThreshold || 0));
+  const overrideDiceCount = fd + excessDice;
+  const overclockDiceCount = overclockPilot ? 2 * ((state.pilots.find(p => p.id === overclockPilot.pilotId)?.mental) || 1) : 0;
   return `
     <h2>SHUTDOWN CHECK</h2>
     <p class="meta">System Strain <strong>${r.systemStrain}/${r.systemStrainThreshold}</strong>. Roll ${fd} d6 vs ${threshold}+ to reboot.<br/>
@@ -3164,20 +3205,22 @@ function renderShutdownReboot(rid, lastRoll) {
     ${canQTM ? `<button class="btn ghost" style="margin-top:8px; width:100%" data-act="use-quick-troublemaker" data-id="${rid}">⚡ QUICK TROUBLEMAKER · force opponent +2 difficulty (once)</button>` : ""}
     ${lastRoll ? `
       <div style="margin-top:12px">
-        <div class="label-small">LAST ROLL</div>
+        <div class="label-small">LAST ROLL ${lastRoll.variant ? `(${lastRoll.variant})` : ""}</div>
         <div style="margin-top:6px">${lastRoll.dice.map(dieChip).join("")}</div>
         <div style="margin-top:10px; font-size:18px">
           ${lastRoll.hits > 0
-            ? `<span class="label-cyan">✓ REBOOTED · ${lastRoll.hits} hit${lastRoll.hits === 1 ? "" : "s"} · −3 Strain</span>`
+            ? `<span class="label-cyan">✓ REBOOTED · ${lastRoll.hits} hit${lastRoll.hits === 1 ? "" : "s"} · −3 Strain${lastRoll.pilotCost ? ` · +${lastRoll.pilotCost} strain on acting pilot` : ""}</span>`
             : `<span class="label-red">✗ SHUTDOWN · 0 hits · skip turn</span>`}
         </div>
       </div>
     ` : ""}
-    <div class="actions" style="margin-top:14px">
+    <div class="actions" style="margin-top:14px; flex-wrap:wrap; gap:8px">
       ${lastRoll
         ? `<button class="btn amber" data-act="shutdown-reboot-done">DONE</button>`
         : `<button class="btn ghost" data-act="modal-close">SKIP (manual)</button>
-           <button class="btn amber" data-act="shutdown-reboot-roll">ROLL ${fd} D6 VS ${threshold}+</button>`}
+           <button class="btn amber" data-act="shutdown-reboot-roll">ROLL ${fd} D6 VS ${threshold}+</button>
+           ${overridePilot ? `<button class="btn ghost" style="color:var(--cyan)" data-act="shutdown-override-roll" data-id="${rid}">OVERRIDE · ${overrideDiceCount} D6 VS 5+ (+${excessDice} excess)</button>` : ""}
+           ${overclockPilot ? `<button class="btn ghost" style="color:var(--amber)" data-act="shutdown-overclock-roll" data-id="${rid}">OVERCLOCK · ${overclockDiceCount} D6 VS 5+ (once)</button>` : ""}`}
     </div>
   `;
 }
@@ -3189,7 +3232,7 @@ handlers["shutdown-reboot-roll"] = () => {
   const threshold = 5;
   const dice = rollFrameSaveDice(fd);
   const hits = dice.filter(v => v >= threshold).length;
-  d.lastRoll = { dice, hits, threshold };
+  d.lastRoll = { dice, hits, threshold, variant: "REBOOT" };
   if (hits > 0) {
     r.systemStrain = Math.max(0, r.systemStrain - 3);
     r.shutdownPending = false;
@@ -3197,6 +3240,64 @@ handlers["shutdown-reboot-roll"] = () => {
     r.shutdown = true;
     r.shutdownPending = false;
   }
+  dbPut("battles", state.activeBattle);
+  render();
+};
+handlers["shutdown-override-roll"] = ({ id }) => {
+  const d = state.modal.data;
+  const r = findBattleRobot(state.activeBattle, Number(id));
+  if (!r) return;
+  const fd = r.frameDurability || 1;
+  const threshold = 5;
+  const excess = Math.max(0, (r.systemStrain || 0) - (r.systemStrainThreshold || 0));
+  const pool = fd + excess;
+  const dice = [];
+  for (let i = 0; i < pool; i++) dice.push(1 + Math.floor(Math.random() * 6));
+  const hits = dice.filter(v => v >= threshold).length;
+  let pilotCost = 0;
+  if (hits > 0) {
+    r.systemStrain = Math.max(0, r.systemStrain - 3);
+    r.shutdownPending = false;
+    // +1 strain on first conscious Override pilot (HP damage = strain per spec).
+    const cp = (r.cockpitPilots || []).find(c =>
+      !c.isKO && c.pilotId &&
+      (state.pilots.find(p => p.id === c.pilotId)?.talents || []).includes("Override")
+    );
+    if (cp) { cp.pilotStrain = (cp.pilotStrain || 0) + 1; pilotCost = 1; }
+  } else {
+    r.shutdown = true;
+    r.shutdownPending = false;
+  }
+  d.lastRoll = { dice, hits, threshold, variant: "OVERRIDE", pilotCost };
+  dbPut("battles", state.activeBattle);
+  render();
+};
+handlers["shutdown-overclock-roll"] = ({ id }) => {
+  const d = state.modal.data;
+  const r = findBattleRobot(state.activeBattle, Number(id));
+  if (!r || r.overclockUsed) return;
+  const threshold = 5;
+  const cp = (r.cockpitPilots || []).find(c =>
+    !c.isKO && c.pilotId &&
+    (state.pilots.find(p => p.id === c.pilotId)?.talents || []).includes("Overclock")
+  );
+  if (!cp) return;
+  const pilot = state.pilots.find(p => p.id === cp.pilotId);
+  const pool = 2 * ((pilot?.mental) || 1);
+  const dice = [];
+  for (let i = 0; i < pool; i++) dice.push(1 + Math.floor(Math.random() * 6));
+  const hits = dice.filter(v => v >= threshold).length;
+  r.overclockUsed = true;
+  let pilotCost = 2;
+  cp.pilotStrain = (cp.pilotStrain || 0) + 2;
+  if (hits > 0) {
+    r.systemStrain = Math.max(0, r.systemStrain - 3);
+    r.shutdownPending = false;
+  } else {
+    r.shutdown = true;
+    r.shutdownPending = false;
+  }
+  d.lastRoll = { dice, hits, threshold, variant: "OVERCLOCK", pilotCost };
   dbPut("battles", state.activeBattle);
   render();
 };
@@ -3308,10 +3409,10 @@ handlers["open-action"] = ({ id, k }) => {
     if (a.bucket === "reaction" && b.reactionsUsed >= 2) { showToast("Both reactions spent this round."); return; }
   }
   // Shutdown gate: if strain reached threshold, the robot must roll a
-  // reboot test before doing anything else. STRAIN_CLEAR + HEAT_VENT
-  // can drain strain so they're the escape hatch and remain allowed.
+  // reboot test before doing anything else. STRAIN_CLEAR + HEAT_VENT +
+  // COOLANT_VENT can drain strain so they're the escape hatch and remain allowed.
   // PASS also bypasses (you can always pass priority).
-  if (r?.shutdownPending && k !== "STRAIN_CLEAR" && k !== "HEAT_VENT" && k !== "PASS") {
+  if (r?.shutdownPending && k !== "STRAIN_CLEAR" && k !== "HEAT_VENT" && k !== "COOLANT_VENT" && k !== "PASS") {
     pushModal("shutdown-reboot", { id: Number(id) });
     return;
   }
@@ -3452,9 +3553,9 @@ let renderActionResolve = function (rid, k) {
   `;
 };
 // Per spec: these four actions surface the pilot picker for pilot-strain routing.
-// (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
+// (HEAT_VENT/COOL_HEAD/COOLANT_VENT show it to identify the acting pilot — cost is Free.)
 function actionShowsPilotPicker(k) {
-  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE" || k === "BREAK_FREE";
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE" || k === "BREAK_FREE" || k === "COOL_HEAD" || k === "COOLANT_VENT";
 }
 // True if the robot has at least one equipped melee weapon on a
 // non-destroyed component (item with "Melee" in its keywords array).
@@ -3491,7 +3592,7 @@ function actionRollKind(k) {
       return "RANGED";
     case "DODGE": case "BOOST_DODGE":
       return "PHYSICAL";
-    case "HEAT_VENT":
+    case "HEAT_VENT": case "COOLANT_VENT":
       return "MENTAL";
     case "BOOST":
       return null; // resolved at table, no roll inherent to BOOST itself
@@ -3585,6 +3686,46 @@ handlers["resolve-action"] = ({ id, k }) => {
       } else {
         showToast(`Heat Vent (${pilotName}) — ${dice.join(",")} → 0 hits, no relief.`);
       }
+    }
+  } else if (k === "COOL_HEAD" && !isManual) {
+    // Cool Head: remove 1 Pilot Strain from the picked conscious pilot.
+    if (_pickedPilot && _pickedPilot !== "MANUAL") {
+      const cp = (r.cockpitPilots || []).find(c =>
+        `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
+      );
+      if (cp && !cp.isKO) {
+        const before = cp.pilotStrain || 0;
+        cp.pilotStrain = Math.max(0, before - 1);
+        const pilot = (state.pilots || []).find(x => x.id === cp.pilotId);
+        showToast(`Cool Head — ${cp.pilotStrain} strain on ${pilot?.name || "pilot"}.`);
+      } else {
+        showToast("Cool Head — pilot KO'd or unassigned, resolve at table.");
+      }
+    } else {
+      showToast("Cool Head — no pilot picked, resolve at table.");
+    }
+  } else if (k === "COOLANT_VENT" && !isManual) {
+    // Coolant Manager: Mental d6 vs 5+, remove 2× hits System Strain (Heat Vent at 2×).
+    let mental = 0, pilotName = "pilot";
+    if (_pickedPilot && _pickedPilot !== "MANUAL") {
+      const cp = (r.cockpitPilots || []).find(c =>
+        `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
+      );
+      const pilot = cp ? (state.pilots || []).find(x => x.id === cp.pilotId) : null;
+      if (pilot) { mental = pilot.mental || 0; pilotName = pilot.name || "pilot"; }
+    }
+    if (mental <= 0) {
+      showToast("Coolant Vent — no rolling pilot, resolve at table.");
+    } else {
+      const dice = [];
+      for (let i = 0; i < mental; i++) dice.push(1 + Math.floor(Math.random() * 6));
+      const hits = dice.filter(v => v >= 5).length;
+      const removed = hits * 2;
+      if (hits > 0) {
+        r.systemStrain = Math.max(0, r.systemStrain - removed);
+        if (r.systemStrain < r.systemStrainThreshold) r.shutdownPending = false;
+      }
+      showToast(`Coolant Vent — ${dice.join(",")} rolled, ${hits} hits → −${removed} strain.`);
     }
   } else if (!isManual) {
     if (a.bucket === "primary" || a.bucket === "reaction") {
@@ -3822,8 +3963,9 @@ function rollerComputeChips(r, rollKind) {
   // Talent chips (player toggles before roll). Cockpit pilots only store
   // pilotId — talents live on state.pilots, so look them up there.
   const cockpitPilots = r.cockpitPilots || [];
+  // KO'd or shutdown pilots can't contribute talent bonuses — only conscious crew.
   const allTalents = cockpitPilots
-    .filter(cp => !cp.isAi && cp.pilotId)
+    .filter(cp => !cp.isAi && !cp.isKO && cp.pilotId)
     .flatMap(cp => state.pilots.find(p => p.id === cp.pilotId)?.talents || []);
   if (rollKind === "RANGED" && allTalents.includes("Sharpshooter")) {
     chips.push({ id: "sharpshooter", label: "+3 SHARPSHOOTER", dice: 3, hint: "Burns the free Incidental, single target only (L631)" });
@@ -3833,6 +3975,26 @@ function rollerComputeChips(r, rollKind) {
   }
   if (rollKind === "MELEE" && allTalents.includes("Brawler")) {
     chips.push({ id: "brawler", label: "+1 BRAWLER", dice: 1, hint: "Brawler talent: +1 die on Melee" });
+  }
+  // Berserker: +1 die on Melee when systemStrain > floor(threshold/2).
+  if (rollKind === "MELEE" && allTalents.includes("Berserker")) {
+    const halfThresh = Math.floor((r.systemStrainThreshold || 0) / 2);
+    if ((r.systemStrain || 0) > halfThresh) {
+      chips.push({ id: "berserker", label: "+1 BERSERKER", dice: 1, hint: `Berserker: +1 die on Melee when Strain > ${halfThresh} (floor(threshold/2))` });
+    }
+  }
+  // Combat Instinct: +1 die on Melee or Ranged when any cockpit pilot's strain >= floor((5+training)/2).
+  if ((rollKind === "MELEE" || rollKind === "RANGED") && allTalents.includes("Combat Instinct")) {
+    const triggered = cockpitPilots.some(cp => {
+      if (cp.isKO || !cp.pilotId) return false;
+      const p = (state.pilots || []).find(x => x.id === cp.pilotId);
+      if (!p || !(p.talents || []).includes("Combat Instinct")) return false;
+      const thresh = Math.floor((5 + (p.training || 0)) / 2);
+      return (cp.pilotStrain || 0) >= thresh;
+    });
+    if (triggered) {
+      chips.push({ id: "combat-instinct", label: "+1 INSTINCT", dice: 1, hint: "Combat Instinct: +1 die when a cockpit pilot's strain ≥ floor((5+training)/2)" });
+    }
   }
   // Coordinated: +1 die on ANY check when ≥2 Coordinated pilots share this robot.
   const coordinatedCount = allTalents.filter(t => t === "Coordinated").length;
@@ -3852,7 +4014,24 @@ function rollerComputeChips(r, rollKind) {
 function calcPilotStrainBonus(r, cp) {
   const p = state.pilots.find(x => x.id === cp.pilotId);
   if (!p) return 0;
-  if ((p.talents || []).includes("Shield Rider") && (r.shieldsCurrent || 0) > 0) return 2;
+  let bonus = 0;
+  if ((p.talents || []).includes("Shield Rider") && (r.shieldsCurrent || 0) > 0) bonus += 2;
+  bonus += forceCommanderBonus(r.side);
+  return bonus;
+}
+// Commander passive: +1 Pilot Strain Threshold to all friendly pilots when any
+// conscious Commander pilot is on the same side (force-wide, not per-robot).
+function forceCommanderBonus(side) {
+  const b = state.activeBattle;
+  if (!b || !side) return 0;
+  const sideRobots = side === "P1" ? (b.p1Robots || []) : (b.p2Robots || []);
+  for (const robot of sideRobots) {
+    for (const cp of (robot.cockpitPilots || [])) {
+      if (cp.isKO || !cp.pilotId) continue;
+      const p = (state.pilots || []).find(x => x.id === cp.pilotId);
+      if ((p?.talents || []).includes("Commander")) return 1;
+    }
+  }
   return 0;
 }
 
