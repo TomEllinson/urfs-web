@@ -90,8 +90,9 @@
         },
         {
           id: "build.equipment_on_component",
-          status: "pending",
+          status: "done",
           size: "L",
+          history: [{ when: "2026-06-06", note: "shipped — EQUIPMENT section in editor, picker with per-item SOCKET dropdown, ref-based c.equipment, deref-on-deploy snapshot" }],
           summary: "Equipment from the library can be attached to a robot component. Component editor gains an EQUIPMENT section + picker that respects socket-type validation.",
           acceptance: [
             "renderEditComponent shows an EQUIPMENT section under MODULES with: '+ ADD EQUIPMENT'.",
@@ -107,8 +108,9 @@
         },
         {
           id: "build.equipment_socket_validation",
-          status: "pending",
+          status: "done",
           size: "M",
+          history: [{ when: "2026-06-06", note: "shipped — validateEquipmentInSocket + getSocketTypeForModule" }],
           summary: "Equipment can only be socketed where the rules allow. Socket types: MANIPULATOR, HOLSTER, INTERNAL, EXTERNAL, TETHER. Rules: Mount Point + INTERNAL/EXTERNAL; non-Mount + MANIPULATOR/HOLSTER (or w/ Extending Grip); Tethered + TETHER; Sil(equipment) ≤ Sil(robot).",
           acceptance: [
             "validateEquipmentInSocket(eq, socketType) returns { valid, error } per Android KeywordValidator.kt:44-48.",

@@ -661,6 +661,45 @@ function robotInstalledModuleIds(robot) {
   }
   return ids;
 }
+// Maps a module id to its socket type (null if not a socket module).
+function getSocketTypeForModule(moduleId) {
+  switch (moduleId) {
+    case "manipulator":           return "MANIPULATOR";
+    case "holster_point":         return "HOLSTER";
+    case "internal_weapon_socket": return "INTERNAL";
+    case "fixed_external_socket":
+    case "swivel_weapon_socket":  return "EXTERNAL";
+    case "tether_socket":         return "TETHER";
+    default:                      return null;
+  }
+}
+
+// Validates that equipment can be placed in a given socket type on a robot.
+// Per Android domain/KeywordValidator.kt:44-48.
+function validateEquipmentInSocket(eq, socketType, robot) {
+  if ((eq.silhouette || 1) > (robot.silhouette || 1)) {
+    return { valid: false, error: "Equipment silhouette exceeds robot silhouette." };
+  }
+  const kw = eq.keywords || [];
+  const hasMountPoint   = kw.includes("Mount Point");
+  const hasExtendingGrip = kw.includes("Extending Grip");
+  const hasTethered     = kw.includes("Tethered");
+  if (socketType === "MANIPULATOR" || socketType === "HOLSTER") {
+    if (hasMountPoint && !hasExtendingGrip) {
+      return { valid: false, error: "Mount Point equipment requires a fixed/swivel socket, not a manipulator or holster (unless it has Extending Grip)." };
+    }
+  } else if (socketType === "INTERNAL" || socketType === "EXTERNAL") {
+    if (!hasMountPoint) {
+      return { valid: false, error: "Internal and external sockets require equipment with the Mount Point keyword." };
+    }
+  } else if (socketType === "TETHER") {
+    if (!hasTethered) {
+      return { valid: false, error: "Tether sockets require equipment with the Tethered keyword." };
+    }
+  }
+  return { valid: true };
+}
+
 // Equipment BP = keyword count × equipment silhouette (Android
 // CalculationEngine.kt:162-163). Flat formula — no per-keyword weights.
 function calcEquipmentBP(equipment) {
@@ -783,11 +822,13 @@ function calcRobotBP(robot) {
   // Schematic + frame stats per CalculationEngine.kt:130-144
   const schematicBP = sil * cc;
   const frameStatsBP = (str * sil) + (dur * sil) + (dur * sil * mat);
-  // Equipment BP across all components (RobotWizardViewModel.kt:1596)
+  // Equipment BP across all components (RobotWizardViewModel.kt:1596).
+  // c.equipment[] entries are refs {equipmentId, socketModuleId}; dereference from library.
   let equipmentBP = 0;
   for (const c of (robot.components || [])) {
     for (const e of (c.equipment || [])) {
-      equipmentBP += calcEquipmentBP(e);
+      const eq = state.equipment.find(x => x.id === e.equipmentId);
+      if (eq) equipmentBP += calcEquipmentBP(eq);
     }
   }
   return schematicBP + frameStatsBP + equipmentBP;
@@ -929,15 +970,26 @@ function buildBattleRobotState(robot, side) {
           moduleId: m.moduleId,
           toggledOn: true,
         })),
-        equipment: (c.equipment || []).map((e, i) => ({
-          equipmentId: e.id ?? i,
-          name: e.name || "Equipment",
-          armorMax: e.armor || 5,
-          armorCurrent: e.armor || 5,
-          isDrawn: !!e.isDrawn,
-          isDropped: false,
-          mountPoint: !!e.mountPoint,
-        })),
+        // Dereference {equipmentId, socketModuleId} refs into self-contained snapshots
+        // so battle state survives later library edits or deletions.
+        equipment: (c.equipment || []).map((e, i) => {
+          const lib = state.equipment.find(x => x.id === e.equipmentId);
+          const stats = lib ? calculateEquipmentStats(lib.keywords || [], lib.silhouette || 1) : {};
+          return {
+            equipmentId: e.equipmentId ?? i,
+            socketModuleId: e.socketModuleId ?? null,
+            name: lib?.name || "Equipment",
+            keywords: lib?.keywords || [],
+            silhouette: lib?.silhouette || 1,
+            damage: stats.damage || 0,
+            range: stats.range || 0,
+            armorMax: stats.armor ?? 5,
+            armorCurrent: stats.armor ?? 5,
+            isDrawn: false,
+            isDropped: false,
+            mountPoint: !!(lib?.keywords || []).includes("Mount Point"),
+          };
+        }),
       };
     }),
     // Fuel max = sum of fuel_tank module fuelCapacity across all components
@@ -1597,6 +1649,29 @@ let renderEditComponent = function (rid, cid) {
         : `<button class="btn wide" data-act="add-module" data-rid="${rid}" data-cid="${cid}">＋ ADD MODULE</button>`;
       return `<div class="label-small label-cyan" style="margin-top:8px">MODULES (${slotCount}/${slotCap})</div>${moduleRows}${addBtn}`;
     })()}
+    ${(() => {
+      const attachedEquipment = (c.equipment || []);
+      const equipmentRows = attachedEquipment.map((e, i) => {
+        const eq = state.equipment.find(x => x.id === e.equipmentId);
+        if (!eq) return "";
+        const stats = calculateEquipmentStats(eq.keywords || [], eq.silhouette || 1);
+        const chip = [
+          stats.damage > 0 ? `DMG ${stats.damage}` : "",
+          stats.range > 0 ? `RNG ${stats.range}` : "",
+          `ARM ${stats.armor}`,
+        ].filter(Boolean).join(" · ");
+        return `
+          <div class="card tight row-between">
+            <div>
+              <strong>${escapeHtml(eq.name || "Equipment")}</strong>
+              <div class="meta" style="font-size:10px">${chip}</div>
+            </div>
+            <button class="btn ghost" data-act="remove-equipment" data-rid="${rid}" data-cid="${cid}" data-idx="${i}">✕</button>
+          </div>
+        `;
+      }).join("");
+      return `<div class="label-small label-cyan" style="margin-top:12px">EQUIPMENT (${attachedEquipment.length})</div>${equipmentRows}<button class="btn wide" data-act="add-equipment" data-rid="${rid}" data-cid="${cid}">＋ ADD EQUIPMENT</button>`;
+    })()}
     <div class="actions">
       <button class="btn ghost" data-act="modal-close-component" data-rid="${rid}" data-cid="${cid}">DONE</button>
     </div>
@@ -1781,6 +1856,117 @@ handlers["install-module"] = ({ rid, cid, mid }) => {
 };
 handlers["cancel-module-picker"] = ({ rid, cid }) => {
   pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["add-equipment"] = ({ rid, cid }) => {
+  pushModal("equipment-picker", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["remove-equipment"] = ({ rid, cid, idx }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  const c = r?.components.find(c => c.tempId === Number(cid));
+  if (!c) return;
+  c.equipment = (c.equipment || []).filter((_, i) => i !== Number(idx));
+  saveRobot(r);
+  render();
+};
+handlers["pick-equipment"] = ({ rid, cid, eqid, selid }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  const c = r?.components.find(c => c.tempId === Number(cid));
+  if (!c) return;
+  if (!c.equipment) c.equipment = [];
+  // selid points to the socket <select> rendered in the picker for this equipment item.
+  const selVal = selid ? (document.getElementById(selid)?.value || null) : null;
+  // selVal is "moduleId:idx"; we only need moduleId for socketModuleId.
+  const socketModuleId = selVal ? selVal.split(":")[0] : null;
+  c.equipment.push({ equipmentId: Number(eqid), socketModuleId });
+  saveRobot(r);
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["cancel-equipment-picker"] = ({ rid, cid }) => {
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+
+let renderEquipmentPicker = function (rid, cid) {
+  const r = state.robots.find(x => x.id === rid);
+  const c = r?.components.find(c => c.tempId === cid);
+  if (!r || !c) return "<p>?</p>";
+
+  // Collect socket modules on this component.
+  const socketModules = (c.modules || []).map((m, i) => {
+    const type = getSocketTypeForModule(m.moduleId);
+    if (!type) return null;
+    const def = MODULES_BY_ID[m.moduleId];
+    return { idx: i, moduleId: m.moduleId, type, name: def?.name || m.moduleId };
+  }).filter(Boolean);
+
+  const itemCards = (state.equipment.length === 0)
+    ? `<p class="meta">No equipment in library yet.</p>`
+    : state.equipment.map(eq => {
+        const stats = calculateEquipmentStats(eq.keywords || [], eq.silhouette || 1);
+        const chip = [
+          `SIL ${eq.silhouette || 1}`,
+          stats.damage > 0 ? `DMG ${stats.damage}` : "",
+          stats.range > 0 ? `RNG ${stats.range}` : "",
+          `ARM ${stats.armor}`,
+        ].filter(Boolean).join(" · ");
+
+        // For each socket, check compatibility.
+        const compatibleSockets = socketModules.filter(sm => {
+          const res = validateEquipmentInSocket(eq, sm.type, r);
+          return res.valid;
+        });
+        const firstIncompat = socketModules.length > 0 && compatibleSockets.length === 0
+          ? validateEquipmentInSocket(eq, socketModules[0].type, r).error
+          : null;
+
+        if (socketModules.length === 0) {
+          return `
+            <div class="card tight" style="opacity:0.4">
+              <div class="row-between">
+                <strong>${escapeHtml(eq.name)}</strong>
+                <span class="chip muted">${chip}</span>
+              </div>
+              <div class="meta" style="font-size:10px; margin-top:4px; color:var(--red, #f44)">Incompatible — no socket modules installed on this component.</div>
+            </div>`;
+        }
+        if (firstIncompat) {
+          return `
+            <div class="card tight" style="opacity:0.4">
+              <div class="row-between">
+                <strong>${escapeHtml(eq.name)}</strong>
+                <span class="chip muted">${chip}</span>
+              </div>
+              <div class="meta" style="font-size:10px; margin-top:4px; color:var(--red, #f44)">Incompatible — ${escapeHtml(firstIncompat)}</div>
+            </div>`;
+        }
+        const socketOpts = compatibleSockets.map(sm =>
+          `<option value="${escapeHtml(sm.moduleId + ":" + sm.idx)}">${escapeHtml(sm.name)} (${sm.type})</option>`
+        ).join("");
+        return `
+          <div class="card tight">
+            <div class="row-between" style="align-items:flex-start; gap:8px">
+              <div style="flex:1">
+                <strong>${escapeHtml(eq.name)}</strong>
+                <div class="meta" style="font-size:10px; margin-top:2px">${chip}</div>
+              </div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px">
+                <select id="socket-sel-${eq.id}" style="background:var(--bg2);color:var(--fg);border:1px solid var(--border);padding:4px 6px;border-radius:4px;font-size:11px">
+                  ${socketOpts}
+                </select>
+                <button class="btn" style="padding:4px 10px; font-size:11px"
+                  data-act="pick-equipment" data-rid="${rid}" data-cid="${cid}" data-eqid="${eq.id}"
+                  data-selid="socket-sel-${eq.id}">PICK</button>
+              </div>
+            </div>
+          </div>`;
+      }).join("");
+
+  return `
+    <h2>PICK EQUIPMENT // ${escapeHtml(c.name || c.definition)} · ${escapeHtml(c.definition)}</h2>
+    ${itemCards}
+    <div class="actions">
+      <button class="btn ghost" data-act="cancel-equipment-picker" data-rid="${rid}" data-cid="${cid}">CANCEL</button>
+    </div>
+  `;
 };
 </script>
 
@@ -4319,6 +4505,7 @@ renderModal = function () {
     case "add-component":    body = renderAddComponent(data.rid); break;
     case "edit-component":   body = renderEditComponent(data.rid, data.cid); break;
     case "module-picker":    body = renderModulePicker(data.rid, data.cid); break;
+    case "equipment-picker": body = renderEquipmentPicker(data.rid, data.cid); break;
     case "equipment-editor": body = renderEquipmentEditor(data.id); break;
     case "pilot-editor":     body = renderPilotEditor(data.id); break;
     case "force-editor":     body = renderForceEditor(data.id); break;
