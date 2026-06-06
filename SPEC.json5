@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.23",
+    current_version: "0.0.24",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -282,8 +282,12 @@
       id: "strain.pilot_knockout_threshold",
       summary: "Per-pilot Pilot Strain threshold (5 + training). At threshold: KO. KO removes pilot from cockpit until first aid.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Pilot at 5 strain with training 0 → KO overlay; remove from cockpit slot.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. cp.isKO=true when cp.pilotStrain >= 5 + pilot.training; PILOTS section shows KO chip + dim; pilot picker filters KO pilots out (treated as absent for strain routing)." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.24. resolve-action strain-routing branch now computes koThreshold = 5 + pilot.training after the pilotStrain bump; if cp.pilotStrain >= threshold and not already KO'd, flips cp.isKO=true and toasts 'Name KO'd! (M/N P-Strain)'. PILOTS section row dims at opacity 0.5 + adds a red KO chip; P-STR display now shows current/threshold (e.g. '5/5') instead of sys/pilot. ActionResolveDialog pilot picker filters humanCockpits with `!c.isAi && !c.isKO` so KO'd slots are treated as absent for strain routing. Verified rookie pilot (training 0) bumped from pilotStrain 4 to 5 via SALVO → isKO=true, KO chip visible, row dimmed, picker shows 0 humans." },
+      ],
     },
     {
       id: "strain.strain_clear_action",

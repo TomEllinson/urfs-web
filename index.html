@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.23 (2026-06-06)
+  Version: 0.0.24 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2147,10 +2147,12 @@ function renderCockpitPilots(r) {
         <span class="chip muted">unassigned</span>
       </div>`;
     }
-    return `<div class="list-card static">
+    const koThreshold = 5 + (p.training || 0);
+    return `<div class="list-card static" ${cp.isKO ? `style="opacity:0.5"` : ""}>
       <strong>${escapeHtml(cp.slotName)}</strong>
       <span class="chip">${escapeHtml(p.name || "Pilot")}</span>
-      <div class="meta">${escapeHtml(p.rank || "ROOKIE")} · STR ${cp.sysStrain}/${cp.pilotStrain}</div>
+      ${cp.isKO ? `<span class="chip red" style="margin-left:6px">KO</span>` : ""}
+      <div class="meta">${escapeHtml(p.rank || "ROOKIE")} · P-STR ${cp.pilotStrain}/${koThreshold}</div>
     </div>`;
   }).join("");
   return `
@@ -2553,7 +2555,9 @@ let renderActionResolve = function (rid, k) {
     <p class="label-small label-amber">COST: ${escapeHtml(a.cost)}</p>
     ${(() => {
       if (!actionShowsPilotPicker(k)) return "";
-      const humanCockpits = cockpits.filter(c => !c.isAi);
+      // KO'd pilots are out — they can't take strain or act on behalf of
+      // the robot until first aid. Filter them from the picker.
+      const humanCockpits = cockpits.filter(c => !c.isAi && !c.isKO);
       if (humanCockpits.length === 0) return "";
       // Auto-pick first human cockpit by composite key on first render
       const firstKey = `${humanCockpits[0].componentId}:${humanCockpits[0].moduleIndex}:${humanCockpits[0].slotIndex}`;
@@ -2686,6 +2690,13 @@ handlers["resolve-action"] = ({ id, k }) => {
             const pilot = (state.pilots || []).find(x => x.id === cp.pilotId);
             const pilotName = pilot ? pilot.name : "pilot";
             pilotStrainMsg = `, +1 PStrain (${pilotName})`;
+            // KO threshold: 5 + training. Mark slot KO'd; picker + render
+            // surface that the pilot is out.
+            const koThreshold = 5 + (pilot?.training || 0);
+            if (cp.pilotStrain >= koThreshold && !cp.isKO) {
+              cp.isKO = true;
+              showToast(`${pilotName} KO'd! (${cp.pilotStrain}/${koThreshold} P-Strain)`);
+            }
           }
         }
       } else {
