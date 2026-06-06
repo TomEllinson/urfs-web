@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.1.0 (2026-06-06) — Android parity sprint
+  Version: 0.1.1 (2026-06-06) — robot stat persistence + additional facings
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -485,7 +485,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.1.1";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -987,6 +987,20 @@ function validateRobot(robot) {
     const unassigned = totalCockpitSlots - assignedPilots;
     if (unassigned > 0)
       issues.push(`Cockpit slot unassigned (${unassigned})`);
+  }
+  for (const c of (robot.components || [])) {
+    if (c.definition === "CORE") continue;
+    const primary = c.facing || "FRONT";
+    const auto = autoAdditionalFacings(c.definition, primary);
+    if (auto) continue;
+    const required = requiredAdditionalCount(c.definition, primary);
+    if (required === 0) continue;
+    const options = eligibleAdditionalFacings(c.definition, primary);
+    const valid = (c.additionalFacings || []).filter(f => options.includes(f));
+    if (valid.length !== required) {
+      const label = c.name || c.definition;
+      issues.push(`${label}: needs ${required} additional facing(s) selected (has ${valid.length})`);
+    }
   }
   return { isValid: issues.length === 0, issues };
 }
@@ -1677,24 +1691,24 @@ let renderRobotEditor = function (id) {
     </div>
     <div class="field">
       <label>NAME</label>
-      <input id="robot-name" value="${escapeHtml(r.name)}" />
+      <input id="robot-name" value="${escapeHtml(r.name)}" onchange="window.persistRobotField(${r.id}, 'name', this.value)" />
     </div>
     <div class="row-gap" style="margin-bottom:10px">
       <div class="field" style="flex:1">
         <label>SIL</label>
-        <input type="number" min="1" max="10" id="robot-sil" value="${r.silhouette}" />
+        <input type="number" min="1" max="10" id="robot-sil" value="${r.silhouette}" onchange="window.persistRobotStat(${r.id}, 'silhouette', this.value, 1, 10)" />
       </div>
       <div class="field" style="flex:1">
         <label>FS</label>
-        <input type="number" min="1" max="6" id="robot-fs" value="${r.frameStrength}" />
+        <input type="number" min="1" max="6" id="robot-fs" value="${r.frameStrength}" onchange="window.persistRobotStat(${r.id}, 'frameStrength', this.value, 1, 6)" />
       </div>
       <div class="field" style="flex:1">
         <label>FD</label>
-        <input type="number" min="1" max="6" id="robot-fd" value="${r.frameDurability}" />
+        <input type="number" min="1" max="6" id="robot-fd" value="${r.frameDurability}" onchange="window.persistRobotStat(${r.id}, 'frameDurability', this.value, 1, 6)" />
       </div>
       <div class="field" style="flex:1">
         <label>FM</label>
-        <input type="number" min="1" max="6" id="robot-fm" value="${r.frameMaterial}" />
+        <input type="number" min="1" max="6" id="robot-fm" value="${r.frameMaterial}" onchange="window.persistRobotStat(${r.id}, 'frameMaterial', this.value, 1, 6)" />
       </div>
     </div>
     <div class="row-gap" style="margin-bottom:10px; flex-wrap:wrap; gap:6px; padding:8px; background:var(--surface-1); border-radius:var(--bevel)">
@@ -1728,7 +1742,12 @@ let renderRobotEditor = function (id) {
         <div class="meta" style="font-size:11px; color:var(--on-surface-muted); margin-top:4px">
           ${(c.modules || []).length} modules
           · ${(c.equipment || []).length} equipment
-          · ${c.definition === "CORE" ? "all facings" : `facing ${c.facing || "FRONT"}`}
+          · ${c.definition === "CORE" ? "all facings" : (() => {
+            const primary = c.facing || "FRONT";
+            const auto = autoAdditionalFacings(c.definition, primary);
+            const extras = auto || (c.additionalFacings || []);
+            return extras.length > 0 ? `facing ${primary} + ${extras.join(", ")}` : `facing ${primary}`;
+          })()}
         </div>
       </div>
     `).join("")}
@@ -1774,6 +1793,26 @@ handlers["modal-close"] = () => {
   closeModal();
 };
 handlers["close-modal"] = () => closeModal();
+// onchange handlers fire on blur — they persist edits to state + IDB
+// immediately so the next re-render (HUD chip update, sub-modal open, etc.)
+// doesn't wipe the typed value. Re-render happens so the HUD reflects the
+// new stat in real time.
+window.persistRobotField = function (id, field, raw) {
+  const r = state.robots.find(x => x.id === Number(id));
+  if (!r) return;
+  r[field] = raw;
+  saveRobot(r);
+  render();
+};
+window.persistRobotStat = function (id, field, raw, lo, hi) {
+  const r = state.robots.find(x => x.id === Number(id));
+  if (!r) return;
+  const v = parseInt(raw, 10);
+  if (Number.isNaN(v)) return;
+  r[field] = Math.max(lo, Math.min(hi, v));
+  saveRobot(r);
+  render();
+};
 function clampInt(id, lo, hi, dflt) {
   const v = parseInt(document.getElementById(id)?.value || "", 10);
   if (Number.isNaN(v)) return dflt;
@@ -1801,6 +1840,126 @@ handlers["delete-component"] = ({ rid, cid }) => {
 // ════════════════════════════════════════════════════════════════════
 const COMP_DEFS = ["HEAD","ARM","LEG","UTILITY"];
 const FACINGS = ["FRONT","BACK","LEFT","RIGHT","TOP","BOTTOM"];
+const HORIZONTAL = ["FRONT","BACK","LEFT","RIGHT"];
+const OPPOSITE = { FRONT:"BACK", BACK:"FRONT", LEFT:"RIGHT", RIGHT:"LEFT", TOP:"BOTTOM", BOTTOM:"TOP" };
+
+function eligibleAdditionalFacings(def, primary) {
+  const adj = FACINGS.filter(f => f !== primary && f !== OPPOSITE[primary]);
+  if (def === "ARM") return adj;
+  if (def === "HEAD") {
+    if (primary === "TOP" || primary === "BOTTOM") return HORIZONTAL;
+    return [];
+  }
+  if (def === "LEG") {
+    if (primary === "TOP" || primary === "BOTTOM") return HORIZONTAL;
+    return HORIZONTAL.filter(f => f !== primary);
+  }
+  return [];
+}
+
+function requiredAdditionalCount(def, primary) {
+  if (def === "ARM") return 1;
+  if (def === "HEAD") return (primary === "TOP" || primary === "BOTTOM") ? 3 : 0;
+  if (def === "LEG") return (primary === "TOP" || primary === "BOTTOM") ? 2 : 1;
+  return 0;
+}
+
+// HEAD on horizontal auto-assigns adjacents; no picker but display them.
+function autoAdditionalFacings(def, primary) {
+  if (def === "HEAD" && primary !== "TOP" && primary !== "BOTTOM") {
+    return FACINGS.filter(f => f !== primary && f !== OPPOSITE[primary] && HORIZONTAL.includes(f));
+  }
+  return null;
+}
+
+function renderFacingPickerHtml(def, primary, picked, idPrefix) {
+  const options = eligibleAdditionalFacings(def, primary);
+  const required = requiredAdditionalCount(def, primary);
+  const autoFacings = autoAdditionalFacings(def, primary);
+  if (autoFacings) {
+    return `<div class="field"><label>ADDITIONAL FACINGS</label><div class="meta" style="padding:4px 0">Auto: ${autoFacings.join(", ")} (horizontal adjacents)</div></div>`;
+  }
+  if (required === 0 || options.length === 0) return "";
+  const count = picked.filter(f => options.includes(f)).length;
+  const ok = count === required;
+  const chips = options.map(f => {
+    const on = picked.includes(f);
+    return `<button class="chip ${on ? "primary" : "muted"}" style="margin:2px" data-act="toggle-facing-chip" data-prefix="${idPrefix}" data-facing="${f}">${f}</button>`;
+  }).join("");
+  return `
+    <div class="field" id="${idPrefix}-facing-picker">
+      <label>ADDITIONAL FACINGS <span style="color:var(--on-surface-muted);font-weight:normal">(pick exactly ${required})</span></label>
+      <div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:4px">${chips}</div>
+      <div style="margin-top:4px;font-size:11px;color:${ok ? "var(--on-surface-muted)" : "var(--danger, #f44)"}">
+        ${count}/${required} selected${ok ? "" : " — select exactly " + required}
+      </div>
+    </div>
+  `;
+}
+
+const addCompUI = { picked: [] };
+const editCompUI = { picked: [] };
+
+handlers["toggle-facing-chip"] = ({ prefix, facing }) => {
+  const ui = prefix === "ac" ? addCompUI : editCompUI;
+  if (ui.picked.includes(facing)) {
+    ui.picked = ui.picked.filter(f => f !== facing);
+  } else {
+    ui.picked = [...ui.picked, facing];
+  }
+  const d = prefix === "ac"
+    ? document.getElementById("ac-def")?.value
+    : document.getElementById("ec-def-hidden")?.value;
+  const primary = prefix === "ac"
+    ? document.getElementById("ac-facing")?.value
+    : document.getElementById("ec-facing")?.value;
+  if (d && primary) {
+    const options = eligibleAdditionalFacings(d, primary);
+    const required = requiredAdditionalCount(d, primary);
+    const count = ui.picked.filter(f => options.includes(f)).length;
+    const ok = count === required;
+    // Refresh chip styles.
+    document.querySelectorAll(`[data-prefix="${prefix}"][data-act="toggle-facing-chip"]`).forEach(btn => {
+      const f = btn.dataset.facing;
+      btn.className = "chip " + (ui.picked.includes(f) ? "primary" : "muted");
+      btn.style.margin = "2px";
+    });
+    // Refresh counter.
+    const picker = document.getElementById(`${prefix}-facing-picker`);
+    if (picker) {
+      const counter = picker.querySelector("div[style*='font-size:11px']");
+      if (counter) {
+        counter.style.color = ok ? "var(--on-surface-muted)" : "var(--danger, #f44)";
+        counter.textContent = `${count}/${required} selected${ok ? "" : " — select exactly " + required}`;
+      }
+    }
+    // Enable/disable the action button.
+    const btn = document.getElementById(`${prefix}-action-btn`);
+    if (btn) btn.disabled = !ok;
+  }
+};
+
+function reattachDataActListeners(root) {
+  for (const el of (root || document).querySelectorAll("[data-act]")) {
+    el.addEventListener("click", (e) => { e.stopPropagation(); dispatch(el.dataset.act, el.dataset); });
+  }
+}
+
+window.onAddCompDefOrFacingChange = function() {
+  const def = document.getElementById("ac-def")?.value;
+  const primary = document.getElementById("ac-facing")?.value;
+  if (!def || !primary) return;
+  const auto = autoAdditionalFacings(def, primary);
+  addCompUI.picked = [];
+  const required = requiredAdditionalCount(def, primary);
+  const pickerEl = document.getElementById("ac-facing-picker-wrap");
+  if (pickerEl) {
+    pickerEl.innerHTML = renderFacingPickerHtml(def, primary, addCompUI.picked, "ac");
+    reattachDataActListeners(pickerEl);
+  }
+  const btn = document.getElementById("ac-action-btn");
+  if (btn) btn.disabled = (required > 0 && !auto && addCompUI.picked.length !== required);
+};
 
 let renderAddComponent = function (rid) {
   const r = state.robots.find(x => x.id === rid);
@@ -1809,6 +1968,12 @@ let renderAddComponent = function (rid) {
   const parentOptions = (r?.components || []).map(c =>
     `<option value="${c.tempId}" ${c.tempId === defaultParent ? "selected" : ""}>${escapeHtml(c.name || c.definition)}</option>`
   ).join("");
+  addCompUI.picked = [];
+  const initDef = "HEAD";
+  const initFacing = "FRONT";
+  const initRequired = requiredAdditionalCount(initDef, initFacing);
+  const initAuto = autoAdditionalFacings(initDef, initFacing);
+  const initDisabled = initRequired > 0 && !initAuto;
   return `
     <h2>ADD COMPONENT</h2>
     <div class="field">
@@ -1817,16 +1982,17 @@ let renderAddComponent = function (rid) {
     </div>
     <div class="field">
       <label>DEFINITION</label>
-      <select id="ac-def">
+      <select id="ac-def" onchange="window.onAddCompDefOrFacingChange()">
         ${COMP_DEFS.map(d => `<option>${d}</option>`).join("")}
       </select>
     </div>
     <div class="field">
       <label>FACING</label>
-      <select id="ac-facing">
+      <select id="ac-facing" onchange="window.onAddCompDefOrFacingChange()">
         ${FACINGS.map(f => `<option>${f}</option>`).join("")}
       </select>
     </div>
+    <div id="ac-facing-picker-wrap">${renderFacingPickerHtml(initDef, initFacing, [], "ac")}</div>
     <div class="field">
       <label>FRAME COMPONENT?</label>
       <select id="ac-frame">
@@ -1842,7 +2008,7 @@ let renderAddComponent = function (rid) {
     </div>
     <div class="actions">
       <button class="btn ghost" data-act="modal-close">CANCEL</button>
-      <button class="btn primary" data-act="confirm-add-component" data-rid="${rid}">ADD</button>
+      <button id="ac-action-btn" class="btn primary" data-act="confirm-add-component" data-rid="${rid}" ${initDisabled ? "disabled" : ""}>ADD</button>
     </div>
   `;
 };
@@ -1854,20 +2020,40 @@ handlers["confirm-add-component"] = ({ rid }) => {
   const facing = document.getElementById("ac-facing").value;
   const isFrame = document.getElementById("ac-frame").value === "true";
   const parentTempId = Number(document.getElementById("ac-parent").value) || null;
+  const auto = autoAdditionalFacings(def, facing);
+  const additionalFacings = auto ? auto : [...addCompUI.picked];
   const tempId = Date.now() + Math.floor(Math.random() * 1000);
   r.components.push({
     tempId, definition: def, facing, name, isFrame,
     parentTempId,
+    additionalFacings,
     modules: [], equipment: [],
   });
   saveRobot(r);
   pushModal("robot-editor", { id: r.id });
 };
 
+window.onEditCompFacingChange = function() {
+  const facing = document.getElementById("ec-facing")?.value;
+  const def = document.getElementById("ec-def-hidden")?.value;
+  if (!facing || !def) return;
+  const auto = autoAdditionalFacings(def, facing);
+  editCompUI.picked = [];
+  const required = requiredAdditionalCount(def, facing);
+  const wrap = document.getElementById("ec-facing-picker-wrap");
+  if (wrap) {
+    wrap.innerHTML = renderFacingPickerHtml(def, facing, editCompUI.picked, "ec");
+    reattachDataActListeners(wrap);
+  }
+  const btn = document.getElementById("ec-action-btn");
+  if (btn) btn.disabled = (required > 0 && !auto && editCompUI.picked.length !== required);
+};
+
 let renderEditComponent = function (rid, cid) {
   const r = state.robots.find(x => x.id === rid);
   const c = r?.components.find(c => c.tempId === cid);
   if (!c) return "<p>Component not found.</p>";
+  editCompUI.picked = [...(c.additionalFacings || [])];
   const installedIds = (c.modules || []).map(m => m.moduleId);
   const available = MODULES.filter(m =>
     (m.definitionLimit.length === 0 || m.definitionLimit.includes(c.definition))
@@ -1904,6 +2090,7 @@ let renderEditComponent = function (rid, cid) {
       <label>NAME</label>
       <input id="ec-name" value="${escapeHtml(c.name)}" />
     </div>
+    <input type="hidden" id="ec-def-hidden" value="${c.definition}" />
     ${c.definition === "CORE" ? `
       <div class="field">
         <label>FACING</label>
@@ -1912,10 +2099,11 @@ let renderEditComponent = function (rid, cid) {
     ` : `
       <div class="field">
         <label>FACING</label>
-        <select id="ec-facing">
+        <select id="ec-facing" onchange="window.onEditCompFacingChange()">
           ${FACINGS.map(f => `<option ${f===c.facing?'selected':''}>${f}</option>`).join("")}
         </select>
       </div>
+      <div id="ec-facing-picker-wrap">${renderFacingPickerHtml(c.definition, c.facing || "FRONT", editCompUI.picked, "ec")}</div>
     `}
     ${parentPickerHtml}
     ${(() => {
@@ -1962,8 +2150,25 @@ let renderEditComponent = function (rid, cid) {
       }).join("");
       return `<div class="label-small label-cyan" style="margin-top:12px">EQUIPMENT (${attachedEquipment.length})</div>${equipmentRows}<button class="btn wide" data-act="add-equipment" data-rid="${rid}" data-cid="${cid}">＋ ADD EQUIPMENT</button>`;
     })()}
+    ${(() => {
+      if (c.definition === "CORE") return "";
+      const req = requiredAdditionalCount(c.definition, c.facing || "FRONT");
+      const auto = autoAdditionalFacings(c.definition, c.facing || "FRONT");
+      const picked = editCompUI.picked;
+      if (req === 0 || auto) return "";
+      const ok = picked.filter(f => eligibleAdditionalFacings(c.definition, c.facing || "FRONT").includes(f)).length === req;
+      return ok ? "" : `<div style="font-size:11px;color:var(--danger,#f44);margin-bottom:4px">Select exactly ${req} additional facing(s) to save</div>`;
+    })()}
     <div class="actions">
-      <button class="btn ghost" data-act="modal-close-component" data-rid="${rid}" data-cid="${cid}">DONE</button>
+      <button id="ec-action-btn" class="btn ghost" data-act="modal-close-component" data-rid="${rid}" data-cid="${cid}" ${(() => {
+        if (c.definition === "CORE") return "";
+        const req = requiredAdditionalCount(c.definition, c.facing || "FRONT");
+        const auto = autoAdditionalFacings(c.definition, c.facing || "FRONT");
+        if (req === 0 || auto) return "";
+        const options = eligibleAdditionalFacings(c.definition, c.facing || "FRONT");
+        const ok = editCompUI.picked.filter(f => options.includes(f)).length === req;
+        return ok ? "" : "disabled";
+      })()}>DONE</button>
     </div>
   `;
 };
@@ -1972,7 +2177,14 @@ handlers["modal-close-component"] = ({ rid, cid }) => {
   const c = r?.components.find(c => c.tempId === Number(cid));
   if (c) {
     c.name = document.getElementById("ec-name")?.value || c.name;
-    c.facing = document.getElementById("ec-facing")?.value || c.facing;
+    const newFacing = document.getElementById("ec-facing")?.value;
+    if (newFacing) c.facing = newFacing;
+    const def = c.definition;
+    const primary = c.facing;
+    const auto = autoAdditionalFacings(def, primary);
+    if (def !== "CORE") {
+      c.additionalFacings = auto ? auto : [...editCompUI.picked];
+    }
     const parentEl = document.getElementById("ec-parent");
     if (parentEl) c.parentTempId = Number(parentEl.value) || null;
     saveRobot(r);
@@ -6204,6 +6416,12 @@ async function init() {
       if (c.definition !== "CORE" && c.parentTempId == null) {
         c.parentTempId = core.tempId;
       }
+    }
+  }
+  // Migrate components built before additionalFacings was tracked.
+  for (const r of state.robots) {
+    for (const c of (r.components || [])) {
+      if (c.additionalFacings == null) c.additionalFacings = [];
     }
   }
   // Normalize legacy battles that predate two-forces schema.
