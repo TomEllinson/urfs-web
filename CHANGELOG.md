@@ -121,10 +121,57 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.46 — 2026-06-06
+v0.1.0 — 2026-06-06 — Android parity sprint
 
 ### Changelog
 
+- **v0.1.0** (2026-06-06): **Android parity sprint complete.** 23
+  spec items across 7 stages bring the webapp to playable feature
+  parity with the Android v1.0.376 build for iOS testers. Spec
+  drive: `SPEC_PARITY.json5`. Highlights:
+  - **Build**: components carry parentTempId for real tree
+    schematics; module slot caps (Core/Utility 8, Head 6, Arm/Leg 4)
+    enforced; requires-chain greys out unsatisfied modules with a
+    confirm-cascade on dependent removal; maxCopies enforced;
+    equipment can finally be attached to components with full
+    socket-type validation (MANIPULATOR / HOLSTER / INTERNAL /
+    EXTERNAL / TETHER per KeywordValidator rules); deploy snapshots
+    bake equipment into self-contained battle state.
+  - **HUD**: 9-chip sticky live build HUD (BP, weight/maxLoad, PWR,
+    fuel, shields, capacitors, strain threshold, GSPD, boost) with
+    red-flag overload/underpower. validateRobot pre-save gate
+    surfaces issues as a chip; Garage list red-dots invalid mechs.
+  - **Pilots**: rank tiers (Rookie/Experienced/Veteran) with stat
+    point + talent slot budgets; AI vs human BP formulas; stat
+    requirements on each talent. All 18 talents wired: 11 base
+    talents (Sharpshooter, Deadeye, Brawler, Coordinated, Shield
+    Rider, Fast Fingers, Quick Troubleshooter, Tank, Neural Link,
+    Quick Troublemaker, Martial Artist) plus 7 new battle variants
+    (Cool Head, Override, Overclock, Berserker, Combat Instinct,
+    Coolant Manager, Commander).
+  - **Forces**: depBP sums pilot BP across cockpits; per-cockpit
+    pilot picker on the force editor; X/Y BP progress bar with red
+    over-cap; DEPLOY confirm-dialog on over-cap; deploy seeds the
+    assign-pilots modal from the editor.
+  - **Battle correctness**: damage hits shields → Guard equipment
+    (Energy-Reflective Coating reflects Energy at full armor; Melee
+    keyword deflects Physical) → armor_coating module Energy
+    absorption → armor → Frame Save → destruction cascade.
+    Penetrating bypassArmor overwhelm route. SALVO costs per-target
+    strain; mental-overflow chip pre-applied in roller. Manual HP
+    bump now routes through Frame Save (no bypass). PASS action
+    via the proper state machine.
+  - **Flight + movement**: r.inertia + r.altitude tracked. BOOST
+    fully resolved (hDist + vDist picker, unitCost ceil(weight/
+    boost) fuel cost, hover floor enforce, FLYING auto-toggles).
+    DECELERATE picker burns fuel per inertia point. STAND_UP gated
+    on DOWN. STEP gated on grounded + still. CROUCH auto-clears on
+    any movement.
+  - **Cleanup**: pilots dialog now reads pilot via cp.pilotId, not
+    nonexistent cp.name/mental fields. Coprocessor module added
+    (boosts strain threshold +1 per stack). Export bundle reports
+    APP_VERSION dynamically. CROUCH action actually sets the
+    statusEffect now.
 - **v0.0.46** (2026-06-06): Stopgap before a planned parity sprint
   to bring the webapp to full Android-app feature depth (target
   weekend 2026-06-07). Three small fixes shipped now:

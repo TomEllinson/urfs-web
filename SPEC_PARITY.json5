@@ -368,16 +368,18 @@
       items: [
         {
           id: "fix.pilots_dialog_refs",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — derives pilot via state.pilots.find(cp.pilotId)" }],
           summary: "renderPilotsDialog uses cp.pilotId → state.pilots.find().name/mental/tokens, not cp.* directly.",
           acceptance: ["Per-pilot rows show correct name + mental cap + token count."],
           current_gap_ref: "index.html:3459-3464",
         },
         {
           id: "fix.export_version_dynamic",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — APP_VERSION constant + dynamic export + version bump to 0.1.0" }],
           summary: "Export JSON appVersion reads from a single APP_VERSION constant, not hardcoded '0.0.2'.",
           acceptance: [
             "APP_VERSION constant declared at top of script; both export + version comment use it.",
@@ -387,8 +389,9 @@
         },
         {
           id: "fix.crouched_status_on_action",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — CROUCH resolve sets statusEffects + removes STANDING + toast" }],
           summary: "CROUCH action resolve adds 'CROUCHED' to statusEffects; any movement action clears it.",
           acceptance: [
             "CROUCH resolve toggles r.statusEffects to include 'CROUCHED'.",
@@ -398,8 +401,9 @@
         },
         {
           id: "fix.strain_threshold_coprocessor",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — Coprocessor module added with coprocessorBonus + calcStrainThreshold sums them" }],
           summary: "calcStrainThreshold includes co-processor module bonus correctly (use the right module id, not actionTokenBonus on a nonexistent module).",
           acceptance: [
             "Add coprocessor module to MODULES if missing OR remap calcStrainThreshold to count the right field.",

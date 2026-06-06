@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.46 (2026-06-06)
+  Version: 0.1.0 (2026-06-06) — Android parity sprint
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -444,6 +444,7 @@
 <div id="modal-host"></div>
 <div id="toast-host"></div>
 <script>
+const APP_VERSION = "0.1.0";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -496,6 +497,7 @@ const MODULES = [
   { id: "horizontal_framing",  name: "Horizontal Framing",   category: "Frame",    weight: 0, power: 0, definitionLimit: ["CORE"], description: "Sil halved (ceil) for LoF + cover. Quadruped/centaur chassis." },
   { id: "leg_attack_system",   name: "Leg/Head Attack System", category: "Frame",  weight: 1, power: 0, definitionLimit: ["LEG","HEAD"], description: "Lets this component melee like an arm." },
   { id: "inertia_driver",      name: "Inertia Driver",       category: "Frame",    weight: 1, power: 0, definitionLimit: ["ARM"], description: "Pre-melee fuel spend → bonus dice." },
+  { id: "coprocessor",         name: "Coprocessor",          category: "Frame",    weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+1 System Strain Threshold; multiple stack.", coprocessorBonus: 1, stackable: true, maxCopies: -1 },
 ];
 const MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
 
@@ -861,7 +863,7 @@ function calcCapacitorPool(robot) {
 function calcStrainThreshold(robot) {
   const sil = robot.silhouette || 1;
   const ids = robotInstalledModuleIds(robot);
-  const coproc = ids.filter(id => MODULES_BY_ID[id]?.actionTokenBonus > 0).length;
+  const coproc = ids.reduce((sum, id) => sum + (MODULES_BY_ID[id]?.coprocessorBonus || 0), 0);
   return Math.ceil(sil / 2) + coproc;
 }
 function calcTotalBoost(robot) {
@@ -1358,7 +1360,7 @@ function buildExportPayload() {
   return {
     schemaVersion: EXPORT_SCHEMA,
     exportedAt: new Date().toISOString(),
-    appVersion: "0.0.2",
+    appVersion: APP_VERSION,
     robots: state.robots,
     pilots: state.pilots,
     equipment: state.equipment,
@@ -4197,6 +4199,12 @@ handlers["resolve-action"] = ({ id, k }) => {
           }
         }
       }
+      if (k === "CROUCH") {
+        if (!(r.statusEffects || []).includes("CROUCHED")) {
+          r.statusEffects = [...(r.statusEffects || []).filter(s => s !== "STANDING"), "CROUCHED"];
+        }
+        showToast("Crouched. +2 die on Ranged with Grabbed weapons. Cleared by movement.");
+      }
       if (k === "STAND_UP") {
         r.statusEffects = (r.statusEffects || []).filter(s => s !== "DOWN");
         showToast("Stand Up — DOWN cleared.");
@@ -4529,18 +4537,23 @@ let renderPilotsDialog = function (rid) {
   return `
     <h2>PILOT STRAIN</h2>
     <p>Action Tokens per pilot. PASS clears.</p>
-    ${cockpits.map((p, i) => `
+    ${cockpits.map((cp, i) => {
+      const pilot = (state.pilots || []).find(x => x.id === cp.pilotId);
+      const displayName = pilot?.name ?? "(unassigned)";
+      const mental = pilot?.mental ?? 0;
+      const strain = cp.pilotStrain || 0;
+      return `
       <div class="card tight">
         <div class="row-between">
-          <strong>${escapeHtml(p.name)}</strong>
-          <span>${p.tokens || 0}${p.mental ? " / " + p.mental : ""}</span>
+          <strong>${escapeHtml(displayName)}</strong>
+          <span>${strain}${mental ? " / " + mental : ""}</span>
         </div>
         <div class="row-gap" style="margin-top:6px">
           <button class="btn ghost" data-act="bump-pilot-tok" data-id="${rid}" data-p="${i}" data-d="-1">− 1</button>
           <button class="btn ghost" data-act="bump-pilot-tok" data-id="${rid}" data-p="${i}" data-d="1">+ 1</button>
         </div>
-      </div>
-    `).join("")}
+      </div>`;
+    }).join("")}
     <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
   `;
 };
