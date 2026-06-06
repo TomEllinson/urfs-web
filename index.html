@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.19 (2026-06-05)
+  Version: 0.0.20 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2357,6 +2357,40 @@ function destroyComponent(robotId, componentId) {
     r.droppedEquipment = (r.droppedEquipment || []).concat(c.equipment);
     r.cascadeLog.push({ kind: "drop-equipment", componentId, count: c.equipment.length });
     c.equipment = [];
+  }
+
+  // (4) Recompute derived stats — destroyed component's modules no
+  // longer contribute. Clamp current values down to new max.
+  recomputeDerivedStats(r);
+}
+
+// Re-derive shields max, capacitor pool, and strain threshold from the
+// LIVE component set (skip destroyed). Existing calc* helpers take a
+// build-shape robot — we pass a shadow with components pre-filtered.
+function recomputeDerivedStats(r) {
+  const live = { ...r, components: (r.components || []).filter(c => !c.isDestroyed) };
+  const newShieldsMax = calcShieldsMax(live);
+  const newCapMax     = calcCapacitorPool(live);
+  const newStrainMax  = calcStrainThreshold(live);
+  r.shieldsMax = newShieldsMax;
+  r.shieldsCurrent = Math.min(r.shieldsCurrent || 0, newShieldsMax);
+  r.capacitorsMax = newCapMax;
+  r.capacitorsRemaining = Math.min(r.capacitorsRemaining || 0, newCapMax);
+  r.systemStrainThreshold = newStrainMax;
+  // Disable modules whose `requires` chain now points at a destroyed
+  // component (or a module installed on a destroyed component). E.g.
+  // destroying the aux reactor disables its dependents.
+  const liveModuleIds = new Set();
+  for (const c of live.components) for (const m of (c.modules || [])) liveModuleIds.add(m.moduleId);
+  for (const c of r.components) {
+    if (c.isDestroyed) continue;
+    for (const m of (c.modules || [])) {
+      const def = MODULES_BY_ID[m.moduleId];
+      const reqs = def?.requires || [];
+      if (reqs.length > 0 && !reqs.some(rq => liveModuleIds.has(rq))) {
+        m.toggledOn = false;
+      }
+    }
   }
 }
 handlers["frame-save-done"] = () => {

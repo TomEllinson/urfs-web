@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.19",
+    current_version: "0.0.20",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -234,8 +234,12 @@
       id: "damage.recompute_derived_stats",
       summary: "After any destruction: recomputeShieldsMax, recomputeCapacitorPool, enforceAuxReactorDependency, refreshPowerAndCheck, recomputeStrainThreshold. Port from Android.",
       depends_on: ["damage.destruction_cascade"],
-      status: "pending",
+      status: "done",
       acceptance: "Destroying the shields module zeros the SHLD max; destroying aux reactor disables dependent modules.",
+      history: [
+        { when: "2026-06-05", who: "claude", note: "picked up. Wrap existing calcShieldsMax / calcCapacitorPool / calcStrainThreshold with a filter that excludes destroyed components (those modules no longer contribute). Wire from destroyComponent tail; clamp current values down to new max." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.20. recomputeDerivedStats(r) wraps existing build-shape calcs (calcShieldsMax / calcCapacitorPool / calcStrainThreshold) with a shadow robot whose components are filtered to !isDestroyed — modules on destroyed components no longer contribute. Clamps shieldsCurrent/capacitorsRemaining to the new max. Also walks alive modules and disables (toggledOn=false) any whose `requires` chain no longer points to a live module (handles aux reactor → dependent modules). Wired from destroyComponent tail. 2 cases verified: (A) destroy a UTILITY hosting shield_gen + capacitor_bank → shieldsMax 3→0 with current clamped, capacitorsMax 2→0 with current clamped, strain unchanged. (B) destroy a Core hosting 'armor' → armor_coating's requires:['armor',...] no longer satisfied → coating.toggledOn flipped from true to false." },
+      ],
     },
     {
       id: "damage.undo_restore_in_combat",

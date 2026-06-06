@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.19 — 2026-06-05
+v0.0.20 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.20** (2026-06-06): Derived stats recompute after each
+  destruction. `recomputeDerivedStats` re-derives shields max,
+  capacitor pool, and strain threshold from the alive component set
+  (destroyed modules no longer contribute) and clamps current values
+  to the new max. Modules whose `requires` chain points at a now-
+  destroyed module get toggled off (handles aux-reactor-style
+  dependents). Wired from `destroyComponent`'s tail.
 - **v0.0.19** (2026-06-05): Destruction cascade. Failed Frame Save
   destroys the component AND fires: (1) recursive child cascade via
   `parentComponentId` (Arm goes down → its Hand goes too), (2)
