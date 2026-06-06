@@ -121,10 +121,25 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.43 — 2026-06-06
+v0.0.44 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.44** (2026-06-06): Robot builder + equipment correctness pass
+  against the Android `CalculationEngine.kt` source of truth. Robot
+  BP now uses the canonical formula `sil×cc + str×sil + dur×sil +
+  dur×sil×mat + Σ equipment BP` (was an incorrect `(fs+fd+fm)×sil
+  + cc`). Equipment now auto-computes BP / damage / range / armor /
+  weight / power / max ammo / damage type / immunity / reach from
+  keywords via a port of `calculateEquipmentStats`, so editing
+  becomes "pick keywords → see derived stats live." The KEYWORDS
+  catalog was rebuilt to match Android (Edge, Energy Edge, Energy
+  Weapon, Power Cell, Extended Range, Scatter, Long Range, Limited
+  Ammo, Extended Magazine, Reach Extender, Energy-Reflective
+  Coating, Overcharged + the flavor-only keywords). Fuel max is now
+  the sum of fuel-tank module `fuelCapacity` across components (was
+  hardcoded `tanks×10 + 10`); robots with no fuel tanks now show 0
+  fuel, matching the Android engine's "no fuel tracking" sentinel.
 - **v0.0.43** (2026-06-06): Flying vector lock + KO fall. Pivot
   picker now shows a red VECTOR LOCK banner with an UNLOCK
   (off-vector) toggle when the robot is flying and not in

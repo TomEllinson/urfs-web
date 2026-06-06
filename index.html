@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.43 (2026-06-06)
+  Version: 0.0.44 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -659,15 +659,136 @@ function robotInstalledModuleIds(robot) {
   }
   return ids;
 }
+// Equipment BP = keyword count × equipment silhouette (Android
+// CalculationEngine.kt:162-163). Flat formula — no per-keyword weights.
+function calcEquipmentBP(equipment) {
+  const kw = equipment?.keywords || [];
+  const sil = equipment?.silhouette || 1;
+  return kw.length * sil;
+}
+
+// Port of Android CalculationEngine.kt:479-629 calculateEquipmentStats.
+// Returns { damage, range, power, weight, armor, reach, maxAmmo, damageType, immunity, bpCost }.
+function calculateEquipmentStats(keywords, silhouette) {
+  const sil = (silhouette < 1 || !silhouette) ? 1 : silhouette;
+  // Count occurrences for multi-take keywords.
+  const count = {};
+  for (const k of (keywords || [])) count[k] = (count[k] || 0) + 1;
+
+  // Base values per CalculationEngine.kt:484-489
+  let damage = 0;
+  let range = 0;
+  let power = 0;
+  let weight = sil;  // base = silhouette
+  let armor = 5;     // base = 5
+  let maxAmmo = 0;
+  let damageType = "Physical";
+  const immunity = [];
+  const isMelee = !!count["Melee"];
+
+  // Damage / type / immunity (lines 495-530)
+  if (count["Melee"]) {
+    damage += sil;
+    if (!immunity.includes("Physical")) immunity.push("Physical");
+  }
+  if (count["Ranged"]) {
+    damage += sil;
+    range = sil * 3;
+  }
+  if (count["Edge"]) damage += sil;
+  if (count["Energy Edge"]) {
+    damage += sil;
+    power -= 5;
+    damageType = "Energy";
+  }
+
+  const energyWeaponCount = count["Energy Weapon"] || 0;
+  if (energyWeaponCount > 0) {
+    damage += 2 * sil * energyWeaponCount;
+    power -= 5 * sil * energyWeaponCount;
+    damageType = "Energy";
+    if (isMelee) {
+      weight = Math.ceil(weight / 3);
+      if (!immunity.includes("Energy")) immunity.push("Energy");
+    }
+  }
+
+  // Overcharged: +Sil Damage per instance (CalculationEngine.kt:535-536)
+  const overchargedCount = count["Overcharged"] || 0;
+  if (overchargedCount > 0) damage += sil * overchargedCount;
+
+  if (count["Power Cell"]) power += 5 * count["Power Cell"];
+
+  // Scatter overrides damage + range (line 547) — before Long Range + Two-handed
+  if (count["Scatter"]) {
+    damage = 2 * sil;
+    range = sil * 2;
+  }
+
+  // Limited Ammo (lines 555-568) — additive, before Two-handed ×2
+  if (count["Limited Ammo"]) {
+    damage += 2 * sil;
+    const extMags = count["Extended Magazine"] || 0;
+    maxAmmo = Math.floor(sil / 2) * (1 + extMags);
+    weight += extMags;  // +1 per extended magazine
+  }
+
+  // Extended Range additive (line 570-571)
+  if (count["Extended Range"]) range += sil * count["Extended Range"];
+
+  // Long Range multiplier (line 575) — applies AFTER additive
+  if (count["Long Range"]) range *= 2;
+
+  // Two-handed ×2 damage — last damage operation (line 595)
+  if (count["Two-handed"]) damage *= 2;
+
+  // Armored (lines 597-601)
+  if (count["Armored"]) {
+    armor += 5 * count["Armored"];
+    weight += count["Armored"];
+  }
+
+  // Energy-Reflective Coating (lines 603-605)
+  if (count["Energy-Reflective Coating"] && !immunity.includes("Energy")) {
+    immunity.push("Energy");
+  }
+
+  // Reach — melee only (lines 612-615); base = sil + extenders
+  let reach = 0;
+  if (isMelee) {
+    const reachExtCount = count["Reach Extender"] || 0;
+    reach = sil + reachExtCount * Math.floor(sil / 2);
+  }
+
+  // BP cost (line 625) = keywords.length × sil
+  const bpCost = (keywords || []).length * sil;
+
+  return {
+    damage, range, power,
+    weight: Math.ceil(weight),
+    armor, reach, maxAmmo,
+    damageType, immunity,
+    bpCost,
+  };
+}
+
 function calcRobotBP(robot) {
-  // Frame BP = silhouette × (frameStrength + frameDurability + frameMaterial)
-  // matches alpha.348 calculateTotalBP shape (simplified).
   const sil = robot.silhouette || 1;
-  const fs = robot.frameStrength || 1;
-  const fd = robot.frameDurability || 1;
-  const fm = robot.frameMaterial || 1;
-  const cc = (robot.components || []).length || 1;
-  return (fs + fd + fm) * sil + cc;
+  const str = robot.frameStrength || 1;
+  const dur = robot.frameDurability || 1;
+  const mat = robot.frameMaterial || 1;
+  const cc = (robot.components || []).length || 0;
+  // Schematic + frame stats per CalculationEngine.kt:130-144
+  const schematicBP = sil * cc;
+  const frameStatsBP = (str * sil) + (dur * sil) + (dur * sil * mat);
+  // Equipment BP across all components (RobotWizardViewModel.kt:1596)
+  let equipmentBP = 0;
+  for (const c of (robot.components || [])) {
+    for (const e of (c.equipment || [])) {
+      equipmentBP += calcEquipmentBP(e);
+    }
+  }
+  return schematicBP + frameStatsBP + equipmentBP;
 }
 function calcShieldsMax(robot) {
   const ids = robotInstalledModuleIds(robot);
@@ -817,8 +938,17 @@ function buildBattleRobotState(robot, side) {
         })),
       };
     }),
-    fuelMax: ids.filter(id => id === "fuel_tank").length * 10 + 10,
-    fuelCurrent: ids.filter(id => id === "fuel_tank").length * 10 + 10,
+    // Fuel max = sum of fuel_tank module fuelCapacity across all components
+    // (BattleTabViewModel.kt:513-514 — no base 10, pure module sum).
+    ...(() => {
+      let fuelMax = 0;
+      for (const c of (robot.components || [])) {
+        for (const m of (c.modules || [])) {
+          fuelMax += (MODULES_BY_ID[m.moduleId]?.fuelCapacity || 0);
+        }
+      }
+      return { fuelMax, fuelCurrent: fuelMax };
+    })(),
     shieldsMax: calcShieldsMax(robot),
     shieldsCurrent: calcShieldsMax(robot),
     systemStrain: 0,
@@ -1495,11 +1625,12 @@ renderEquipment = function () {
         <div class="thumb">🔫</div>
         <div style="flex:1">
           <h3>${escapeHtml(e.name || "Unnamed")}</h3>
-          <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
-            <span class="chip">SIL ${e.silhouette || 1}</span>
-            <span class="chip muted">${e.bpCost || 0} BP</span>
-            ${e.armor ? `<span class="chip green">ARM ${e.armor}</span>` : ""}
-          </div>
+          ${(() => {
+            const stats = calculateEquipmentStats(e.keywords || [], e.silhouette);
+            return `<div class="meta">
+              SIL ${e.silhouette || 1} · BP ${stats.bpCost} · WGT ${stats.weight}${stats.damage > 0 ? ` · DMG ${stats.damage}${stats.damageType === 'Energy' ? ' E' : ''}` : ''}${stats.range > 0 ? ` · RNG ${stats.range}` : ''}${stats.armor !== 5 ? ` · ARM ${stats.armor}` : ''}${stats.maxAmmo > 0 ? ` · AMMO ${stats.maxAmmo}` : ''}
+            </div>`;
+          })()}
           <div class="meta">${escapeHtml((e.keywords || []).join(", ") || "no keywords")}</div>
         </div>
         <button class="btn ghost" style="padding:6px 10px" data-act="delete-equipment" data-id="${e.id}">✕</button>
@@ -1523,7 +1654,19 @@ handlers["delete-equipment"] = async ({ id }) => {
   render();
 };
 
-const KEYWORDS = ["Melee","Ranged","Burst","Penetrating","Tethered","Mount Point","Limited","Heavy","Armored","Energy","Two-handed","Reach","Guard","Energy-Reflective","Overcharged"];
+const KEYWORDS = [
+  // Stat-modifying (port from CalculationEngine.kt:479-629)
+  "Melee", "Ranged", "Edge", "Energy Edge", "Energy Weapon",
+  "Power Cell", "Extended Range", "Scatter", "Long Range",
+  "Two-handed", "Limited Ammo", "Extended Magazine",
+  "Armored", "Reach Extender", "Energy-Reflective Coating",
+  "Overcharged",
+  // Flavor / mechanical only (no stat changes)
+  "Mount Point", "Extending Grip", "Auto", "Explosive",
+  "Burst", "Guard", "Inertia Additive", "Kinetic",
+  "Link Point", "Tethered", "Corded", "Penetrating",
+  "Indirect", "Module Slot",
+];
 let renderEquipmentEditor = function (id) {
   const e = state.equipment.find(x => x.id === id);
   if (!e) return "<p>?</p>";
@@ -1531,17 +1674,20 @@ let renderEquipmentEditor = function (id) {
     <h2>EQUIPMENT // EDIT</h2>
     <div class="field"><label>NAME</label><input id="eq-name" value="${escapeHtml(e.name)}" /></div>
     <div class="row-gap" style="flex-wrap:wrap">
-      <div class="field" style="flex:1; min-width:96px"><label>SIL</label><input id="eq-sil" type="number" min="0" value="${e.silhouette}" /></div>
-      <div class="field" style="flex:1; min-width:96px"><label>BP</label><input id="eq-bp" type="number" min="0" value="${e.bpCost}" /></div>
-      <div class="field" style="flex:1; min-width:96px"><label>WEIGHT</label><input id="eq-w" type="number" min="0" value="${e.weight}" /></div>
-      <div class="field" style="flex:1; min-width:96px"><label>ARMOR</label><input id="eq-arm" type="number" min="0" value="${e.armor}" /></div>
-      <div class="field" style="flex:1; min-width:96px"><label>MAX AMMO</label><input id="eq-ammo" type="number" min="0" value="${e.maxAmmo}" /></div>
+      <div class="field" style="flex:1; min-width:96px"><label>SIL</label><input id="eq-sil" type="number" min="1" value="${e.silhouette || 1}" /></div>
     </div>
     <div class="field">
       <label>KEYWORDS (tap to toggle)</label>
       <div class="row-gap" style="flex-wrap:wrap">
         ${KEYWORDS.map(k => `<span class="chip ${(e.keywords || []).includes(k) ? "" : "muted"}" data-act="toggle-keyword" data-id="${e.id}" data-k="${k}">${k}</span>`).join("")}
       </div>
+    </div>
+    <div style="margin-top:12px; padding:10px; background:rgba(77,208,225,0.08); border-radius:var(--bevel)">
+      <div class="label-small label-cyan">COMPUTED STATS</div>
+      <div class="meta" style="margin-top:4px">${(() => {
+        const stats = calculateEquipmentStats(e.keywords || [], e.silhouette || 1);
+        return `BP <strong>${stats.bpCost}</strong> · Weight <strong>${stats.weight}</strong> · Damage <strong>${stats.damage}${stats.damageType === 'Energy' ? ' ⚡' : ''}</strong>${stats.range > 0 ? ` · Range <strong>${stats.range}</strong>` : ''} · Armor <strong>${stats.armor}</strong>${stats.maxAmmo > 0 ? ` · Max Ammo <strong>${stats.maxAmmo}</strong>` : ''}${stats.power !== 0 ? ` · Power <strong>${stats.power > 0 ? '+' : ''}${stats.power}</strong>` : ''}${stats.immunity.length ? ` · Immune ${stats.immunity.join('/')}` : ''}`;
+      })()}</div>
     </div>
     <div class="field">
       <label>NOTES</label>
@@ -1566,12 +1712,14 @@ handlers["save-equipment"] = ({ id }) => {
   const e = state.equipment.find(x => x.id === Number(id));
   if (e) {
     e.name = document.getElementById("eq-name").value || e.name;
-    e.silhouette = parseInt(document.getElementById("eq-sil").value, 10) || 0;
-    e.bpCost = parseInt(document.getElementById("eq-bp").value, 10) || 0;
-    e.weight = parseInt(document.getElementById("eq-w").value, 10) || 0;
-    e.armor = parseInt(document.getElementById("eq-arm").value, 10) || 0;
-    e.maxAmmo = parseInt(document.getElementById("eq-ammo").value, 10) || 0;
+    e.silhouette = parseInt(document.getElementById("eq-sil").value, 10) || 1;
     e.notes = document.getElementById("eq-notes").value || "";
+    // Derive computed fields from keywords so battle state reads are consistent
+    const stats = calculateEquipmentStats(e.keywords || [], e.silhouette);
+    e.bpCost = stats.bpCost;
+    e.weight = stats.weight;
+    e.armor = stats.armor;
+    e.maxAmmo = stats.maxAmmo;
     dbPut("equipment", e);
   }
   closeModal();
