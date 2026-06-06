@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.20 (2026-06-06)
+  Version: 0.0.21 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -3109,6 +3109,12 @@ handlers["restore-comp"] = ({ id, cid }) => {
   if (!c) return;
   c.isDestroyed = false;
   c.hpCurrent = c.hpMax;
+  // Per alpha.356: cascade collateral (stowed children, fuel-spilled
+  // siblings, dropped equipment) is NOT auto-rewound — the player taps
+  // each one if they want it back. This restore just clears the host
+  // flag, refills its armor, and re-derives shields/cap/strain so the
+  // pools snap back to include this component's modules again.
+  recomputeDerivedStats(r);
   dbPut("battles", state.activeBattle);
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };

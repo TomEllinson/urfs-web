@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.20",
+    current_version: "0.0.21",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -245,8 +245,12 @@
       id: "damage.undo_restore_in_combat",
       summary: "Port restoreComponent from Android alpha.356: UNDO·RESTORE button on destroyed-component overlay clears flag, restores HP, re-runs recompute helpers.",
       depends_on: ["damage.recompute_derived_stats"],
-      status: "pending",
+      status: "done",
       acceptance: "Misclick destroy → tap UNDO·RESTORE → component back to full HP, derived stats snap back.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. UI surface exists since v0.0.2 (UNDO·RESTORE button rendered when isDestroyed). Handler exists but doesn't call recomputeDerivedStats — adding that call so shields/cap/strain snap back like the Android alpha.356 restore." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.21. restore-comp handler now calls recomputeDerivedStats(r) after clearing isDestroyed + restoring hpCurrent. Per alpha.356: cascade collateral (stowed children, fuel-spilled siblings, dropped equipment) is NOT auto-rewound — player taps each one individually. Verified destroy→restore round-trip on shield_gen-bearing Core: shieldsMax 3→0→3 (recompute), hpCurrent 4→0→4 (refill), isDestroyed flag false→true→false. Closes stage 4 damage pipeline." },
+      ],
     },
   ],
 

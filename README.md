@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.20 — 2026-06-06
+v0.0.21 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.21** (2026-06-06): UNDO·RESTORE for destroyed components
+  (mistake recovery). Existing button on the comp sheet's destroyed
+  overlay now calls `recomputeDerivedStats(r)` after clearing
+  `isDestroyed` and refilling armor, so shields/cap/strain snap back
+  the moment you un-destroy. Cascade collateral is NOT auto-rewound —
+  the player re-restores each one individually if they want it. Closes
+  stage 4 damage pipeline.
 - **v0.0.20** (2026-06-06): Derived stats recompute after each
   destruction. `recomputeDerivedStats` re-derives shields max,
   capacitor pool, and strain threshold from the alive component set
