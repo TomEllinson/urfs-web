@@ -499,18 +499,24 @@ const MODULES = [
 ];
 const MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
 
+const RANK_BUDGETS = {
+  ROOKIE:      { statPoints: 10, talentSlots: 2, bpCost: 5  },
+  EXPERIENCED: { statPoints: 13, talentSlots: 4, bpCost: 10 },
+  VETERAN:     { statPoints: 16, talentSlots: 6, bpCost: 15 },
+};
+
 const TALENTS = [
-  { name: "Sharpshooter", cost: 3, slots: 1, description: "On a single-target Ranged Salvo, may burn the free Incidental for +3 dice. Inertia 0 only." },
-  { name: "Deadeye",      cost: 4, slots: 1, description: "After a single-target Ranged attack, add a Pilot Strain token to make it Unblockable." },
-  { name: "Tank",         cost: 4, slots: 1, description: "+1 Mental dedicated to System-Strain reduction." },
-  { name: "Coordinated",  cost: 3, slots: 1, description: "When in the same robot as another Coordinated pilot, +1 die on all checks." },
-  { name: "Shield Rider", cost: 3, slots: 1, description: "While Shields > 0, +2 Pilot Strain Threshold." },
-  { name: "Fast Fingers", cost: 2, slots: 1, description: "+1 free Toggle Incidental per round." },
-  { name: "Brawler",      cost: 3, slots: 1, description: "+1 die on Melee attacks." },
-  { name: "Quick Troubleshooter", cost: 3, slots: 1, description: "On a Power-Loss Emergency Shutdown trigger, may pick which module shut down to retoggle on." },
-  { name: "Neural Link",  cost: 7, slots: 2, description: "Physical replaces Mental for Pilot Strain damage AND a Fortitude check on Frame Component destruction." },
-  { name: "Quick Troublemaker", cost: 3, slots: 1, description: "Once per game, force an opposing robot's Emergency Shutdown check at +2 difficulty." },
-  { name: "Martial Artist", cost: 4, slots: 1, description: "Unarmed melee = 1d6 + ½ Strength. May Parry without a melee weapon." },
+  { name: "Sharpshooter",       cost: 3, slots: 1, description: "On a single-target Ranged Salvo, may burn the free Incidental for +3 dice. Inertia 0 only.",                    statReqs: { mental: 3 } },
+  { name: "Deadeye",            cost: 4, slots: 1, description: "After a single-target Ranged attack, add a Pilot Strain token to make it Unblockable.",                          statReqs: { mental: 4 } },
+  { name: "Tank",               cost: 4, slots: 1, description: "+1 Mental dedicated to System-Strain reduction. Pilot HP = 3 × Physical instead of 2 × Physical.",               statReqs: { physical: 4 } },
+  { name: "Coordinated",        cost: 3, slots: 1, description: "When in the same robot as another Coordinated pilot, +1 die on all checks.",                                      statReqs: { mental: 3 } },
+  { name: "Shield Rider",       cost: 3, slots: 1, description: "While Shields > 0, +2 Pilot Strain Threshold.",                                                                   statReqs: { training: 3 } },
+  { name: "Fast Fingers",       cost: 2, slots: 1, description: "+1 free Toggle Incidental per round.",                                                                             statReqs: { training: 3 } },
+  { name: "Brawler",            cost: 3, slots: 1, description: "+1 die on Melee attacks.",                                                                                        statReqs: { physical: 3 } },
+  { name: "Quick Troubleshooter", cost: 3, slots: 1, description: "On a Power-Loss Emergency Shutdown trigger, may pick which module shut down to retoggle on.",                  statReqs: { mental: 3 } },
+  { name: "Neural Link",        cost: 7, slots: 2, description: "Physical replaces Mental for Pilot Strain damage AND a Fortitude check on Frame Component destruction.",          statReqs: { mental: 4 } },
+  { name: "Quick Troublemaker", cost: 3, slots: 1, description: "Once per game, force an opposing robot's Emergency Shutdown check at +2 difficulty.",                             statReqs: { training: 3 } },
+  { name: "Martial Artist",     cost: 4, slots: 1, description: "Unarmed melee = 1d6 + ½ Physical. May Parry without a melee weapon.",                                            statReqs: { physical: 4 } },
 ];
 
 // ────────────────────────────────────────────────────────────────────
@@ -1055,6 +1061,7 @@ function buildBattleRobotState(robot, side) {
     cockpitPilots: [], // populated when force deploys with pilots
     actionBudget: { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 },
     gspdSpent: 0,
+    freeToggleIncidentals: 0,
     facingDegrees: 0,
   };
 }
@@ -2193,54 +2200,168 @@ handlers["delete-pilot"] = async ({ id }) => {
   state.pilots = state.pilots.filter(p => p.id !== Number(id));
   render();
 };
+function pilotStatPointsUsed(p) {
+  // Each stat starts at 1 baseline; budget covers points above that minimum.
+  return ((p.physical || 1) - 1) + ((p.mental || 1) - 1) + ((p.training || 1) - 1);
+}
+function pilotTalentSlotsUsed(p) {
+  const names = new Set(p.talents || []);
+  return TALENTS.filter(t => names.has(t.name)).reduce((s, t) => s + t.slots, 0);
+}
+function pilotBpReadout(p) {
+  if (p.isAi) return 3 * ((p.physical || 1) + (p.mental || 1) + (p.training || 1));
+  const budget = RANK_BUDGETS[p.rank] || RANK_BUDGETS.ROOKIE;
+  const talentNames = new Set(p.talents || []);
+  const talentCost = TALENTS.filter(t => talentNames.has(t.name)).reduce((s, t) => s + t.cost, 0);
+  return budget.bpCost + talentCost;
+}
+function pilotMeetsStatReq(p, reqs) {
+  if (!reqs) return true;
+  if (reqs.physical && (p.physical || 1) < reqs.physical) return false;
+  if (reqs.mental   && (p.mental   || 1) < reqs.mental)   return false;
+  if (reqs.training && (p.training || 1) < reqs.training) return false;
+  return true;
+}
 let renderPilotEditor = function (id) {
   const p = state.pilots.find(x => x.id === id);
   if (!p) return "<p>?</p>";
+  const budget = RANK_BUDGETS[p.rank] || RANK_BUDGETS.ROOKIE;
+  const spUsed = pilotStatPointsUsed(p);
+  const spLeft = budget.statPoints - spUsed;
+  const slotsUsed = pilotTalentSlotsUsed(p);
+  const slotsLeft = budget.talentSlots - slotsUsed;
   const talentSet = new Set(p.talents || []);
+  const bp = pilotBpReadout(p);
+  const statRow = (label, field, val) => {
+    const canDec = val > 1;
+    const canInc = spLeft > 0 && val < 6;
+    return `
+      <div style="display:flex; align-items:center; gap:8px; margin-top:6px">
+        <span style="width:80px; font-size:12px; font-weight:700; color:var(--on-surface-muted)">${label}</span>
+        <button class="btn ghost" style="padding:4px 10px" data-act="pilot-stat" data-id="${p.id}" data-f="${field}" data-d="-1" ${canDec?'':'disabled'}">−</button>
+        <span style="min-width:24px; text-align:center; font-weight:700; font-size:16px">${val}</span>
+        <button class="btn ghost" style="padding:4px 10px" data-act="pilot-stat" data-id="${p.id}" data-f="${field}" data-d="1" ${canInc?'':'disabled'}">+</button>
+      </div>`;
+  };
   return `
     <h2>PILOT // EDIT</h2>
     <div class="field"><label>NAME</label><input id="p-name" value="${escapeHtml(p.name)}" /></div>
-    <div class="row-gap" style="flex-wrap:wrap">
+    <div class="row-gap" style="flex-wrap:wrap; margin-top:6px">
       <div class="field" style="flex:1; min-width:120px">
         <label>RANK</label>
-        <select id="p-rank">${RANKS.map(r => `<option ${r===p.rank?'selected':''}>${r}</option>`).join("")}</select>
+        <select id="p-rank" data-act="pilot-rank" data-id="${p.id}">${RANKS.map(r => `<option ${r===p.rank?'selected':''}>${r}</option>`).join("")}</select>
       </div>
-      <div class="field" style="flex:1; min-width:96px"><label>BP</label><input id="p-bp" type="number" min="0" value="${p.bpCost}" /></div>
+      <div class="field" style="flex:1; min-width:96px">
+        <label>AI?</label>
+        <select id="p-ai" data-act="pilot-ai" data-id="${p.id}">
+          <option value="false" ${!p.isAi?'selected':''}>Human</option>
+          <option value="true" ${p.isAi?'selected':''}>AI</option>
+        </select>
+      </div>
     </div>
-    <div class="row-gap" style="flex-wrap:wrap">
-      <div class="field" style="flex:1; min-width:96px"><label>PHYSICAL</label><input id="p-phy" type="number" min="1" max="6" value="${p.physical}" /></div>
-      <div class="field" style="flex:1; min-width:96px"><label>MENTAL</label><input id="p-men" type="number" min="1" max="6" value="${p.mental}" /></div>
-      <div class="field" style="flex:1; min-width:96px"><label>TRAINING</label><input id="p-tra" type="number" min="1" max="6" value="${p.training}" /></div>
-    </div>
-    <div class="field"><label>AI?</label><select id="p-ai"><option value="false" ${!p.isAi?'selected':''}>Human</option><option value="true" ${p.isAi?'selected':''}>AI</option></select></div>
-    <div class="label-small label-cyan" style="margin-top:8px">TALENTS</div>
-    <div class="row-gap" style="flex-wrap:wrap">
-      ${TALENTS.map(t => `<span class="chip ${talentSet.has(t.name)?'':'muted'}" data-act="toggle-talent" data-id="${p.id}" data-t="${escapeHtml(t.name)}">${escapeHtml(t.name)}</span>`).join("")}
-    </div>
+
+    <div class="label-small label-cyan" style="margin-top:10px">STATS — ${spLeft} pts remaining (budget ${budget.statPoints})</div>
+    ${statRow("PHYSICAL", "physical", p.physical || 1)}
+    ${statRow("MENTAL",   "mental",   p.mental   || 1)}
+    ${statRow("TRAINING", "training", p.training || 1)}
+
+    <div class="label-small" style="margin-top:10px; color:var(--amber)">BP: ${bp}</div>
+
+    ${p.isAi ? `<p class="meta" style="margin-top:8px; font-size:11px">AI pilots have no talents. BP = 3 × (PHY + MEN + TRN).</p>` : `
+      <div class="label-small label-cyan" style="margin-top:10px">TALENTS (${slotsUsed}/${budget.talentSlots} slots)</div>
+      <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px">
+        ${TALENTS.map(t => {
+          const selected = talentSet.has(t.name);
+          const meetsReqs = pilotMeetsStatReq(p, t.statReqs);
+          const wouldFit = selected || (slotsLeft >= t.slots);
+          const disabled = !selected && (!wouldFit || !meetsReqs);
+          const reqLabel = t.statReqs ? Object.entries(t.statReqs).map(([k,v]) => `${k[0].toUpperCase()}${v}`).join(" ") : "";
+          return `<button class="action-btn" data-act="toggle-talent" data-id="${p.id}" data-t="${escapeHtml(t.name)}"
+            style="opacity:${meetsReqs ? 1 : 0.4}; ${disabled && !selected ? 'pointer-events:none;' : ''}"
+            title="${meetsReqs ? '' : 'Requires: ' + reqLabel}">
+            <span class="nm" style="color:${selected ? 'var(--cyan)' : 'var(--on-surface-muted)'}">
+              ${selected ? '☑' : '☐'} ${escapeHtml(t.name)} <span style="font-size:11px">[${t.slots}sl · ${t.cost}bp]</span>
+            </span>
+            <span class="hint">${escapeHtml(t.description)}${reqLabel ? ' · Req: ' + reqLabel : ''}</span>
+          </button>`;
+        }).join("")}
+      </div>
+    `}
     <div class="actions">
       <button class="btn ghost" data-act="save-pilot" data-id="${p.id}">DONE</button>
     </div>
   `;
 };
-handlers["toggle-talent"] = ({ id, t }) => {
+handlers["pilot-stat"] = ({ id, f, d }) => {
   const p = state.pilots.find(x => x.id === Number(id));
   if (!p) return;
-  p.talents = p.talents || [];
-  if (p.talents.includes(t)) p.talents = p.talents.filter(x => x !== t);
-  else p.talents.push(t);
+  p.name = document.getElementById("p-name")?.value || p.name;
+  const budget = RANK_BUDGETS[p.rank] || RANK_BUDGETS.ROOKIE;
+  const delta = parseInt(d, 10);
+  const cur = p[f] || 1;
+  const spUsed = pilotStatPointsUsed(p);
+  const spLeft = budget.statPoints - spUsed;
+  if (delta > 0 && (spLeft <= 0 || cur >= 6)) return;
+  if (delta < 0 && cur <= 1) return;
+  p[f] = cur + delta;
+  p.bpCost = pilotBpReadout(p);
   dbPut("pilots", p);
-  render();
+  pushModal("pilot-editor", { id: Number(id) });
+};
+handlers["pilot-rank"] = ({ id }) => {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (!p) return;
+  p.name = document.getElementById("p-name")?.value || p.name;
+  p.rank = document.getElementById("p-rank").value;
+  p.bpCost = pilotBpReadout(p);
+  dbPut("pilots", p);
+  pushModal("pilot-editor", { id: Number(id) });
+};
+handlers["pilot-ai"] = ({ id }) => {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (!p) return;
+  p.name = document.getElementById("p-name")?.value || p.name;
+  p.isAi = document.getElementById("p-ai").value === "true";
+  if (p.isAi) p.talents = [];
+  p.bpCost = pilotBpReadout(p);
+  dbPut("pilots", p);
+  pushModal("pilot-editor", { id: Number(id) });
+};
+handlers["toggle-talent"] = ({ id, t }) => {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (!p || p.isAi) return;
+  // Sync ALL in-flight form values before toggling — otherwise stat-req checks
+  // use stale stat values from the last save, not what the user just typed.
+  p.name = document.getElementById("p-name")?.value || p.name;
+  const physEl = document.getElementById("p-physical");
+  const menEl = document.getElementById("p-mental");
+  const trnEl = document.getElementById("p-training");
+  if (physEl) p.physical = parseInt(physEl.value, 10) || p.physical;
+  if (menEl) p.mental = parseInt(menEl.value, 10) || p.mental;
+  if (trnEl) p.training = parseInt(trnEl.value, 10) || p.training;
+  p.talents = p.talents || [];
+  const talent = TALENTS.find(x => x.name === t);
+  if (!talent) return;
+  if (p.talents.includes(t)) {
+    p.talents = p.talents.filter(x => x !== t);
+  } else {
+    if (!pilotMeetsStatReq(p, talent.statReqs)) return;
+    const slotsUsed = pilotTalentSlotsUsed(p);
+    const budget = RANK_BUDGETS[p.rank] || RANK_BUDGETS.ROOKIE;
+    if (slotsUsed + talent.slots > budget.talentSlots) return;
+    p.talents.push(t);
+  }
+  p.bpCost = pilotBpReadout(p);
+  dbPut("pilots", p);
+  pushModal("pilot-editor", { id: Number(id) });
 };
 handlers["save-pilot"] = ({ id }) => {
   const p = state.pilots.find(x => x.id === Number(id));
   if (p) {
     p.name = document.getElementById("p-name").value || p.name;
-    p.rank = document.getElementById("p-rank").value;
-    p.bpCost = parseInt(document.getElementById("p-bp").value, 10) || 0;
-    p.physical = parseInt(document.getElementById("p-phy").value, 10) || 1;
-    p.mental = parseInt(document.getElementById("p-men").value, 10) || 1;
-    p.training = parseInt(document.getElementById("p-tra").value, 10) || 1;
     p.isAi = document.getElementById("p-ai").value === "true";
+    p.rank = document.getElementById("p-rank").value;
+    p.bpCost = pilotBpReadout(p);
     dbPut("pilots", p);
   }
   closeModal();
@@ -2630,6 +2751,12 @@ handlers["round-next"] = () => {
     const cap = robot.capacitorsMax ?? 0;
     robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
     if (robot.shutdown) robot.shutdown = false;
+    // Fast Fingers: grant 1 free Toggle Incidental per Fast Fingers pilot per round.
+    const ffCount = (robot.cockpitPilots || [])
+      .filter(cp => !cp.isAi && !cp.isKO && cp.pilotId)
+      .filter(cp => (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Fast Fingers"))
+      .length;
+    robot.freeToggleIncidentals = ffCount;
   }
   dbPut("battles", b);
   render();
@@ -2725,7 +2852,7 @@ function renderCockpitPilots(r) {
         <span class="chip muted">unassigned</span>
       </div>`;
     }
-    const koThreshold = 5 + (p.training || 0);
+    const koThreshold = 5 + (p.training || 0) + calcPilotStrainBonus(r, cp);
     return `<div class="list-card static" ${cp.isKO ? `style="opacity:0.5"` : ""}>
       <strong>${escapeHtml(cp.slotName)}</strong>
       <span class="chip">${escapeHtml(p.name || "Pilot")}</span>
@@ -2945,6 +3072,25 @@ function destroyComponent(robotId, componentId) {
   // (4) Recompute derived stats — destroyed component's modules no
   // longer contribute. Clamp current values down to new max.
   recomputeDerivedStats(r);
+
+  // (5) Neural Link: conscious Neural Link pilots make a Physical fortitude
+  // check (Physical d6 vs 5+) when a FRAME component is destroyed. Frame
+  // components are flagged isFrame at build time (Core is always frame; other
+  // components may be frame or utility per builder choice).
+  const destroyed = (r.components || []).find(c => c.tempId === componentId)
+    || (r.battleComponents || []).find(c => c.id === componentId);
+  if (destroyed?.isFrame) {
+    const nlPilots = (r.cockpitPilots || []).filter(cp =>
+      !cp.isAi && !cp.isKO && cp.pilotId && pilotHasNeuralLink(cp.pilotId)
+    );
+    if (nlPilots.length > 0) {
+      r._pendingNeuralLink = (r._pendingNeuralLink || []).concat(
+        nlPilots.map(cp => ({ pilotSlot: `${cp.componentId}:${cp.moduleIndex}:${cp.slotIndex}`, componentId }))
+      );
+      const names = nlPilots.map(cp => state.pilots.find(p => p.id === cp.pilotId)?.name || "pilot").join(", ");
+      showToast(`Neural Link: ${names} must make a Physical fortitude check (d6 vs 5+).`);
+    }
+  }
 }
 
 // Re-derive shields max, capacitor pool, and strain threshold from the
@@ -2980,6 +3126,17 @@ handlers["frame-save-done"] = () => {
   closeModal();
 };
 
+// Set shutdownPending + Quick Troubleshooter availability flag.
+function setShutdownPending(r) {
+  r.shutdownPending = true;
+  // Quick Troubleshooter: flag available if any conscious pilot has the talent.
+  const hasQT = (r.cockpitPilots || []).some(cp =>
+    !cp.isAi && !cp.isKO && cp.pilotId &&
+    (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Quick Troubleshooter")
+  );
+  r.quickTroubleshooterAvailable = hasQT;
+}
+
 // Shutdown reboot test. Roll FD d6 vs 5+:
 //   hits ≥ 1 → success, sysStrain -= 3 (clamped), shutdownPending cleared
 //   hits = 0 → fail, r.shutdown = true (robot skips turn until round
@@ -2993,10 +3150,18 @@ function renderShutdownReboot(rid, lastRoll) {
     const hit = v >= threshold;
     return `<span class="chip ${hit ? "amber" : "muted"}" style="font-size:14px; padding:6px 10px; margin-right:4px">${v}</span>`;
   };
+  // Quick Troublemaker: opponent's Emergency Shutdown at +2 difficulty (once per game).
+  const qtmPilot = (r.cockpitPilots || []).find(cp =>
+    !cp.isAi && !cp.isKO && cp.pilotId &&
+    (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Quick Troublemaker")
+  );
+  const canQTM = qtmPilot && !r.quickTroublemakerUsed;
   return `
     <h2>SHUTDOWN CHECK</h2>
     <p class="meta">System Strain <strong>${r.systemStrain}/${r.systemStrainThreshold}</strong>. Roll ${fd} d6 vs ${threshold}+ to reboot.<br/>
       Hits ≥ 1 → −3 System Strain, robot clears. Hits = 0 → Shutdown (skip turn until next round).</p>
+    ${r.quickTroubleshooterAvailable ? `<p class="meta" style="color:var(--cyan)">Quick Troubleshooter active — after reboot, pick which module to retoggle.</p>` : ""}
+    ${canQTM ? `<button class="btn ghost" style="margin-top:8px; width:100%" data-act="use-quick-troublemaker" data-id="${rid}">⚡ QUICK TROUBLEMAKER · force opponent +2 difficulty (once)</button>` : ""}
     ${lastRoll ? `
       <div style="margin-top:12px">
         <div class="label-small">LAST ROLL</div>
@@ -3033,6 +3198,14 @@ handlers["shutdown-reboot-roll"] = () => {
     r.shutdownPending = false;
   }
   dbPut("battles", state.activeBattle);
+  render();
+};
+handlers["use-quick-troublemaker"] = ({ id }) => {
+  const r = findBattleRobot(state.activeBattle, Number(id));
+  if (!r || r.quickTroublemakerUsed) return;
+  r.quickTroublemakerUsed = true;
+  dbPut("battles", state.activeBattle);
+  showToast("Quick Troublemaker used — opponent's next Emergency Shutdown at +2 difficulty (resolve at table). Once per game.");
   render();
 };
 handlers["shutdown-reboot-done"] = () => {
@@ -3295,7 +3468,11 @@ function robotHasMeleeWeapon(r) {
       if (kw.includes("melee")) return true;
     }
   }
-  return false;
+  // Martial Artist: unarmed melee counts as having a melee weapon.
+  return (r.cockpitPilots || []).some(cp =>
+    !cp.isAi && !cp.isKO && cp.pilotId &&
+    (state.pilots.find(p => p.id === cp.pilotId)?.talents || []).includes("Martial Artist")
+  );
 }
 // Baseline pilot strain delta on RESOLVE.
 // SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
@@ -3392,6 +3569,12 @@ handlers["resolve-action"] = ({ id, k }) => {
     if (mental <= 0) {
       showToast("Heat Vent — no rolling pilot, resolve at table.");
     } else {
+      // Tank talent: +1 extra d6 on Heat Vent rolls (Mental+1 dice pool).
+      const cp = (r.cockpitPilots || []).find(c =>
+        _pickedPilot && `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
+      );
+      const pilot2 = cp ? (state.pilots || []).find(x => x.id === cp.pilotId) : null;
+      if (pilot2 && pilotHasTank(pilot2.id)) mental += 1;
       const dice = [];
       for (let i = 0; i < mental; i++) dice.push(1 + Math.floor(Math.random() * 6));
       const hits = dice.filter(v => v >= 5).length;
@@ -3406,7 +3589,7 @@ handlers["resolve-action"] = ({ id, k }) => {
   } else if (!isManual) {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
-      if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
+      if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) setShutdownPending(r);
       // Charge / Strafe / Move: deduct chosen distance from the GSPD-spent
       // counter. MOVE uses full Ground Speed (rulebook L222); the other two
       // use ½ Ground Speed per their catalog briefs.
@@ -3476,7 +3659,7 @@ handlers["resolve-action"] = ({ id, k }) => {
             pilotStrainMsg = `, +1 PStrain (${pilotName})`;
             // KO threshold: 5 + training. Mark slot KO'd; picker + render
             // surface that the pilot is out.
-            const koThreshold = 5 + (pilot?.training || 0);
+            const koThreshold = 5 + (pilot?.training || 0) + calcPilotStrainBonus(r, cp);
             if (cp.pilotStrain >= koThreshold && !cp.isKO) {
               cp.isKO = true;
               showToast(`${pilotName} KO'd! (${cp.pilotStrain}/${koThreshold} P-Strain)`);
@@ -3651,7 +3834,40 @@ function rollerComputeChips(r, rollKind) {
   if (rollKind === "MELEE" && allTalents.includes("Brawler")) {
     chips.push({ id: "brawler", label: "+1 BRAWLER", dice: 1, hint: "Brawler talent: +1 die on Melee" });
   }
+  // Coordinated: +1 die on ANY check when ≥2 Coordinated pilots share this robot.
+  const coordinatedCount = allTalents.filter(t => t === "Coordinated").length;
+  if (coordinatedCount >= 2) {
+    chips.push({ id: "coordinated", label: "+1 COORDINATED", dice: 1, hint: "Two+ Coordinated pilots in this robot — +1 die on all checks" });
+  }
+  // Martial Artist: enables unarmed melee chip.
+  if (rollKind === "MELEE" && allTalents.includes("Martial Artist")) {
+    chips.push({ id: "martial-artist", label: "UNARMED MELEE", dice: 0, hint: "Martial Artist: unarmed OK; damage = 1d6 + ½ Physical. Parry without weapon." });
+  }
   return chips;
+}
+
+// Passive talent helpers — called from outside rollerComputeChips.
+
+// Shield Rider: +2 Pilot Strain Threshold per Shield Rider pilot while shields > 0.
+function calcPilotStrainBonus(r, cp) {
+  const p = state.pilots.find(x => x.id === cp.pilotId);
+  if (!p) return 0;
+  if ((p.talents || []).includes("Shield Rider") && (r.shieldsCurrent || 0) > 0) return 2;
+  return 0;
+}
+
+// Tank: HP formula flip — 3 × Physical instead of 2 × Physical.
+// KO threshold is used as HP proxy (5 + training); Tank doesn't change that
+// formula directly but does flip the HEAT_VENT extra die (wired in action handler).
+function pilotHasTank(pilotId) {
+  const p = state.pilots.find(x => x.id === pilotId);
+  return p ? (p.talents || []).includes("Tank") : false;
+}
+
+// Neural Link: Physical replaces Mental for pilot strain source.
+function pilotHasNeuralLink(pilotId) {
+  const p = state.pilots.find(x => x.id === pilotId);
+  return p ? (p.talents || []).includes("Neural Link") : false;
 }
 let renderDiceRoller = function (rid, k) {
   const r = findBattleRobot(state.activeBattle, rid);
@@ -3776,7 +3992,7 @@ let renderStrainDialog = function (rid) {
 handlers["bump-strain"] = ({ id, d }) => {
   const r = findBattleRobot(state.activeBattle, id);
   r.systemStrain = Math.max(0, r.systemStrain + parseInt(d, 10));
-  if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
+  if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) setShutdownPending(r);
   if (r.systemStrain < r.systemStrainThreshold && r.shutdownPending) r.shutdownPending = false;
   dbPut("battles", state.activeBattle);
   pushModal("strain-dialog", { id: Number(id) });

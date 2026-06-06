@@ -171,8 +171,9 @@
       items: [
         {
           id: "pilot.rank_stat_talent_budget",
-          status: "pending",
+          status: "done",
           size: "M",
+          history: [{ when: "2026-06-06", note: "shipped — RANK_BUDGETS + stat editor with budget + talent slot budget + stat-req dimming + AI branch" }],
           summary: "Pilot editor enforces rank-based stat budget (R 10 / E 13 / V 16) and talent slot budget (R 2 / E 4 / V 6). AI pilots: no talents, BP = 3×(PHY+MEN+TRN).",
           acceptance: [
             "Rank picker switches budget pools and refreshes remaining-points display.",
@@ -186,8 +187,9 @@
         },
         {
           id: "pilot.full_talent_dice_catalog",
-          status: "pending",
+          status: "done",
           size: "M",
+          history: [{ when: "2026-06-06", note: "shipped — all 11 talents wired: Coordinated, Shield Rider, Fast Fingers, Quick Troubleshooter, Tank Heat Vent +1, Neural Link frame-gated fortitude flag, Quick Troublemaker, Martial Artist unarmed melee" }],
           summary: "Wire all 11 dice-bonus + threshold talents into the dice roller chips and battle handlers — not just Sharpshooter/Deadeye/Brawler.",
           acceptance: [
             "rollerComputeChips covers: Sharpshooter, Deadeye, Brawler, Coordinated, Shield Rider, Fast Fingers, Quick Troubleshooter, Tank, Neural Link, Quick Troublemaker, Martial Artist.",
