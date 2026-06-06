@@ -1232,10 +1232,20 @@ renderGarage = function () {
     <button class="fab" data-act="new-robot">＋</button>
   `;
 };
-function depBP(robot) {
+function depBP(robot, force) {
   const base = calcRobotBP(robot);
-  // Equipment BP comes from equipment library refs; pilots from cockpit picks. v0.0.1: just return base.
-  return base;
+  if (!force) return base;
+  const assignments = force.pilotAssignments || {};
+  const robotAssign = assignments[robot.id] || {};
+  let pilotBP = 0;
+  const slots = robotCockpitSlots(robot);
+  for (let i = 0; i < slots.length; i++) {
+    const pid = robotAssign[i];
+    if (!pid) continue;
+    const pilot = state.pilots.find(p => p.id === pid);
+    if (pilot) pilotBP += (pilot.bpCost || 0);
+  }
+  return base + pilotBP;
 }
 handlers["new-robot"] = () => {
   const r = newRobot();
@@ -2386,19 +2396,27 @@ renderForces = function () {
     return emptyScreen("FORCES", "Build a force (squad) here.", "+ NEW FORCE", "new-force");
   }
   return `
-    ${state.forces.map(f => `
+    ${state.forces.map(f => {
+      const totalBP = (f.robotIds || []).reduce((sum, rid) => {
+        const r = state.robots.find(x => x.id === rid);
+        return r ? sum + depBP(r, f) : sum;
+      }, 0);
+      const cap = f.bpCap || 0;
+      const over = cap > 0 && totalBP > cap;
+      return `
       <div class="list-card" data-act="edit-force" data-id="${f.id}">
         <div class="thumb">👥</div>
         <div style="flex:1">
           <h3>${escapeHtml(f.name || "Unnamed Force")}</h3>
           <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
             <span class="chip">${(f.robotIds || []).length} robots</span>
-            <span class="chip muted">BP cap ${f.bpCap || "—"}</span>
+            <span class="chip muted">${cap > 0 ? `${totalBP} / ${cap} BP` : `${totalBP} BP`}</span>
+            ${over ? `<span class="chip" style="background:var(--red,#ef4444);color:#fff">OVER CAP</span>` : ""}
           </div>
         </div>
         <button class="btn ghost" style="padding:6px 10px" data-act="delete-force" data-id="${f.id}">✕</button>
-      </div>
-    `).join("")}
+      </div>`;
+    }).join("")}
     <button class="fab" data-act="new-force">＋</button>
   `;
 };
@@ -2419,26 +2437,88 @@ handlers["delete-force"] = async ({ id }) => {
 let renderForceEditor = function (id) {
   const f = state.forces.find(x => x.id === id);
   if (!f) return "<p>?</p>";
+  const assigns = f.pilotAssignments || {};
+  const totalBP = (f.robotIds || []).reduce((sum, rid) => {
+    const r = state.robots.find(x => x.id === rid);
+    return r ? sum + depBP(r, f) : sum;
+  }, 0);
+  const cap = f.bpCap || 0;
+  const overCap = cap > 0 && totalBP > cap;
+  const robotRows = (f.robotIds || []).map(rid => {
+    const r = state.robots.find(x => x.id === rid);
+    if (!r) return "";
+    const slots = robotCockpitSlots(r);
+    const robotAssign = assigns[r.id] || {};
+    const usedPilotIds = new Set(
+      Object.entries(assigns).flatMap(([rk, slotMap]) =>
+        Object.entries(slotMap || {}).map(([, pid]) => pid).filter(Boolean)
+      )
+    );
+    const slotRows = slots.map((slot, i) => {
+      if (slot.isAi) return `<div class="meta" style="margin:4px 0 4px 8px">${escapeHtml(slot.slotName)} · A.I. Core (auto)</div>`;
+      const cur = robotAssign[i] || "";
+      // Human cockpit slots show human pilots only (AI Core slots already
+      // short-circuit above); allow re-selecting the current pick even if it
+      // appears in the used-elsewhere set.
+      const available = state.pilots.filter(p => (!usedPilotIds.has(p.id) || p.id === cur) && !p.isAi);
+      const opts = `<option value="">— Unassigned —</option>` +
+        available.map(p =>
+          `<option value="${p.id}" ${p.id === cur ? "selected" : ""}>${escapeHtml(p.name || "Pilot")} <span class="chip">${p.bpCost || 0} BP</span></option>`
+        ).join("");
+      return `
+        <div style="margin:4px 0 4px 8px">
+          <div class="meta">${escapeHtml(slot.slotName)} · ${escapeHtml(slot.moduleName)}</div>
+          <select data-act="force-editor-pilot-pick" data-fid="${f.id}" data-rid="${r.id}" data-slot="${i}"
+            style="margin-top:4px;width:100%;background:var(--bg2);color:var(--fg);border:1px solid var(--border);padding:6px;border-radius:4px">
+            ${opts}
+          </select>
+        </div>`;
+    }).join("");
+    return `
+      <div class="card tight" style="margin-bottom:8px">
+        <div class="row-between">
+          <span>${escapeHtml(r.name)} <span class="chip muted">${depBP(r, f)} BP</span></span>
+          <button class="btn ghost" data-act="force-remove-robot" data-fid="${f.id}" data-rid="${rid}">✕</button>
+        </div>
+        ${slotRows}
+      </div>`;
+  }).join("");
+
+  const capBar = cap > 0 ? (() => {
+    const pct = Math.min(100, Math.round(totalBP / cap * 100));
+    const barColor = overCap ? "var(--red, #ef4444)" : "var(--cyan, #22d3ee)";
+    return `
+      <div style="margin:10px 0 4px;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${barColor};transition:width .2s"></div>
+      </div>
+      <div class="row-between" style="margin-bottom:8px">
+        <span class="meta">${totalBP} / ${cap} BP</span>
+        ${overCap ? `<span class="chip" style="background:var(--red,#ef4444);color:#fff">OVER CAP</span>` : ""}
+      </div>`;
+  })() : `<div class="meta" style="margin:6px 0">${totalBP} BP (no cap)</div>`;
+
   return `
     <h2>FORCE // EDIT</h2>
     <div class="field"><label>NAME</label><input id="f-name" value="${escapeHtml(f.name)}" /></div>
     <div class="field"><label>BP CAP</label><input id="f-cap" type="number" min="0" value="${f.bpCap}" /></div>
     <div class="label-small label-cyan" style="margin-top:8px">ROBOTS (${(f.robotIds || []).length})</div>
-    ${(f.robotIds || []).map(rid => {
-      const r = state.robots.find(x => x.id === rid);
-      return r ? `
-        <div class="card tight row-between">
-          <span>${escapeHtml(r.name)}  <span class="chip muted">${calcRobotBP(r)} BP</span></span>
-          <button class="btn ghost" data-act="force-remove-robot" data-fid="${f.id}" data-rid="${rid}">✕</button>
-        </div>
-      ` : "";
-    }).join("")}
+    ${robotRows}
     <button class="btn wide" data-act="force-add-robot" data-fid="${f.id}">＋ ADD ROBOT</button>
+    ${capBar}
     <div class="actions">
       <button class="btn ghost" data-act="save-force" data-id="${f.id}">DONE</button>
       <button class="btn amber" data-act="deploy-force" data-id="${f.id}">DEPLOY</button>
     </div>
   `;
+};
+handlers["force-editor-pilot-pick"] = ({ fid, rid, slot }, value) => {
+  const f = state.forces.find(x => x.id === Number(fid));
+  if (!f) return;
+  f.pilotAssignments = f.pilotAssignments || {};
+  f.pilotAssignments[Number(rid)] = f.pilotAssignments[Number(rid)] || {};
+  f.pilotAssignments[Number(rid)][Number(slot)] = value ? Number(value) : null;
+  dbPut("forces", f);
+  render();
 };
 handlers["save-force"] = ({ id }) => {
   const f = state.forces.find(x => x.id === Number(id));
@@ -2489,11 +2569,31 @@ handlers["deploy-force"] = ({ id }) => {
     showToast("Add at least one robot first.");
     return;
   }
+  const cap = f.bpCap || 0;
+  if (cap > 0) {
+    const totalBP = (f.robotIds || []).reduce((sum, rid) => {
+      const r = state.robots.find(x => x.id === rid);
+      return r ? sum + depBP(r, f) : sum;
+    }, 0);
+    if (totalBP > cap && !confirm(`Force exceeds BP cap (${totalBP}/${cap}). Continue anyway?`)) return;
+  }
   if (forceCockpitSlots(f).filter(s => !s.isAi).length === 0) {
     // No human cockpit slots — build AI-only battle directly.
     deployForceWithAssignments(f, {});
   } else {
-    pushModal("pilot-assign", { fid: f.id, assignments: {} });
+    // Seed pilot-assign modal from force editor pre-assignments so the user can review/confirm.
+    const seeded = {};
+    for (const rid of (f.robotIds || [])) {
+      const robot = state.robots.find(r => r.id === rid);
+      if (!robot) continue;
+      const robotAssign = (f.pilotAssignments || {})[rid] || {};
+      const slots = robotCockpitSlots(robot);
+      for (let i = 0; i < slots.length; i++) {
+        const pid = robotAssign[i];
+        if (pid) seeded[`${rid}:${slots[i].componentId}:${slots[i].slotIndex}`] = pid;
+      }
+    }
+    pushModal("pilot-assign", { fid: f.id, assignments: seeded });
   }
 };
 
