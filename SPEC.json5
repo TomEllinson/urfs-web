@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.28",
+    current_version: "0.0.29",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -341,8 +341,12 @@
       id: "dice.strafe_move_plus_ranged",
       summary: "Strafe: ½ GSPD move + per-target ranged. Tokens like Salvo.",
       depends_on: ["dice.salvo_per_target_plus_mental"],
-      status: "pending",
+      status: "done",
       acceptance: "Strafe → move + ranged-roll-per-target.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Strafe = Charge's distance picker (v0.0.28) + Salvo's per-target tokens (v0.0.27). Composes from existing infra: extend k==='CHARGE' branches to k in {CHARGE,STRAFE}, extend k==='SALVO' to k in {SALVO,STRAFE}, add STRAFE to actionShowsPilotPicker. Per rulebook L226, Strafe uses 'up to Ground Speed' (full, not half) — but the action catalog hides that detail. Following v0.0.28 ½GSPD convention for parity; full-GSPD nuance can ship in a future positioning slice." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.29. Three one-liner extensions: actionShowsPilotPicker also returns true for STRAFE, distance-picker section condition + resolve branch both extend k===CHARGE to {CHARGE,STRAFE}, target-picker + token-application both extend k===SALVO to {SALVO,STRAFE}. Toast strings use a.label so 'Strafe — moved N SU' / 'Strafe on N targets' render correctly. Verified: open STRAFE → distance 2 + 2 P2 targets → resolve → gspdSpent=2, both targets receive salvoTokens=1, sysStrain bumps, primary budget used, pilot picker visible, actionRollKind=RANGED." },
+      ],
     },
     {
       id: "dice.melee_assault_all_weapons",

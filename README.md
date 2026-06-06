@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.28 — 2026-06-06
+v0.0.29 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.29** (2026-06-06): Strafe composes from prior slices —
+  Charge's distance picker (½GSPD spent) + Salvo's per-target
+  saturation tokens. Three one-liner condition extensions; no new
+  UI surfaces.
 - **v0.0.28** (2026-06-06): Charge gains a distance picker. New
   CHARGE DISTANCE input in the ActionResolveDialog accepts 0 up to
   ½ Ground Speed minus what's already spent this round; on RESOLVE

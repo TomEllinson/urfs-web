@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.28 (2026-06-06)
+  Version: 0.0.29 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2601,7 +2601,7 @@ let renderActionResolve = function (rid, k) {
       `;
     })()}
     ${(() => {
-      if (k !== "SALVO") return "";
+      if (k !== "SALVO" && k !== "STRAFE") return "";
       const b = state.activeBattle;
       const targets = [...(b.p1Robots || []), ...(b.p2Robots || [])]
         .filter(x => x.robotId !== rid && !x.destroyed);
@@ -2633,7 +2633,7 @@ let renderActionResolve = function (rid, k) {
       `;
     })()}
     ${(() => {
-      if (k !== "CHARGE") return "";
+      if (k !== "CHARGE" && k !== "STRAFE") return "";
       const halfGspd = Math.floor((r.groundSpeed || 0) / 2);
       const remaining = halfGspd - (r.gspdSpent || 0);
       const dist = state.modal?.data?.distance ?? Math.min(remaining, halfGspd);
@@ -2662,7 +2662,7 @@ let renderActionResolve = function (rid, k) {
 // Per spec: these four actions surface the pilot picker for pilot-strain routing.
 // (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
 function actionShowsPilotPicker(k) {
-  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT";
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE";
 }
 // Baseline pilot strain delta on RESOLVE.
 // SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
@@ -2767,17 +2767,17 @@ handlers["resolve-action"] = ({ id, k }) => {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
       if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
-      // Charge: deduct chosen distance from the GSPD-spent counter.
-      if (k === "CHARGE") {
+      // Charge / Strafe: deduct chosen distance from the GSPD-spent counter.
+      if (k === "CHARGE" || k === "STRAFE") {
         const dist = state.modal?.data?.distance || 0;
         const halfGspd = Math.floor((r.groundSpeed || 0) / 2);
         const remaining = halfGspd - (r.gspdSpent || 0);
         const clamped = Math.max(0, Math.min(remaining, dist));
         r.gspdSpent = (r.gspdSpent || 0) + clamped;
-        showToast(`Charge — moved ${clamped} SU, ${remaining - clamped} ½GSPD left this round.`);
+        showToast(`${a.label} — moved ${clamped} SU, ${remaining - clamped} ½GSPD left this round.`);
       }
-      // Salvo: per-target saturation tokens + Mental check trigger.
-      if (k === "SALVO") {
+      // Salvo / Strafe: per-target saturation tokens + Mental check trigger.
+      if (k === "SALVO" || k === "STRAFE") {
         const tids = state.modal?.data?.targetIds || [];
         const b = state.activeBattle;
         const all = [...(b.p1Robots || []), ...(b.p2Robots || [])];
@@ -2793,7 +2793,7 @@ handlers["resolve-action"] = ({ id, k }) => {
           : null;
         const mental = pilot?.mental || 0;
         if (tids.length > mental && tids.length > 0) {
-          showToast(`Salvo on ${tids.length} targets — Mental check (${mental}) needed.`);
+          showToast(`${a.label} on ${tids.length} targets — Mental check (${mental}) needed.`);
         }
       }
       let pilotStrainMsg = "";
