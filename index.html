@@ -2814,6 +2814,18 @@ function findBattleRobot(b, rid) {
   if (p1) return p1;
   return (b?.p2Robots || []).find(x => x.robotId === n || x.robotId === rid);
 }
+function hoverFloorFor(r) {
+  // Returns 1 if any hover_system module is toggled ON, else 0.
+  return r.components.some(c => c.modules.some(m => m.moduleId === "hover_system" && (m.toggledOn ?? true))) ? 1 : 0;
+}
+function syncFlyingStatus(r) {
+  const flying = (r.statusEffects || []).includes("FLYING");
+  if ((r.altitude ?? 0) > 0 && !flying) {
+    r.statusEffects = [...(r.statusEffects || []).filter(s => s !== "STANDING"), "FLYING"];
+  } else if ((r.altitude ?? 0) <= 0 && flying) {
+    r.statusEffects = (r.statusEffects || []).filter(s => s !== "FLYING");
+  }
+}
 handlers["pass-priority"] = ({ side } = {}) => {
   const b = state.activeBattle;
   if (!b) return;
@@ -2922,6 +2934,10 @@ function renderPerRobotBattle(b, rid) {
         <div class="stat-cell ok" data-act="show-capacitors" data-id="${r.robotId}"><span class="lbl">CAP</span><span class="val">${r.capacitorsRemaining || "—"}</span></div>
         <div class="stat-cell ${(r.gspdSpent || 0) >= (r.groundSpeed || 0) && (r.groundSpeed || 0) > 0 ? "warn" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">GSPD</span><span class="val">${r.groundSpeed ? `${(r.groundSpeed - (r.gspdSpent || 0))}/${r.groundSpeed}` : "—"}</span></div>
         <div class="stat-cell ${r.boostPower > 0 ? "cyan" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">BOOST</span><span class="val">${r.boostPower || "—"}</span></div>
+      </div>
+      <div class="stat-grid" style="margin-top:6px">
+        <div class="stat-cell ${(r.inertia || 0) > 0 ? "warn" : "ok"}"><span class="lbl">INERTIA</span><span class="val">${r.inertia ?? 0}</span></div>
+        <div class="stat-cell ${(r.altitude || 0) > 0 ? "cyan" : "ok"}"><span class="lbl">ALT</span><span class="val">${r.altitude ?? 0}</span></div>
       </div>
     </div>
     ${renderCockpitPilots(r)}
@@ -3578,6 +3594,21 @@ handlers["set-charge-distance"] = ({ value }) => {
   d.distance = Math.max(0, Number(value) || 0);
   // No re-render needed — the input keeps focus and other UI is unaffected.
 };
+handlers["set-boost-hdist"] = ({ value }) => {
+  const d = state.modal?.data;
+  if (!d) return;
+  d.hDist = Math.max(0, Number(value) || 0);
+};
+handlers["set-boost-vdist"] = ({ value }) => {
+  const d = state.modal?.data;
+  if (!d) return;
+  d.vDist = Number(value) || 0;
+};
+handlers["set-decel-pts"] = ({ value }) => {
+  const d = state.modal?.data;
+  if (!d) return;
+  d.decelPts = Math.max(0, Number(value) || 0);
+};
 handlers["toggle-salvo-target"] = ({ tid }) => {
   const d = state.modal?.data;
   if (!d) return;
@@ -3608,6 +3639,14 @@ handlers["open-action"] = ({ id, k }) => {
   // Already in Shutdown (last round's reboot failed) — robot can't act.
   if (r?.shutdown && k !== "PASS") {
     showToast("Robot is Shutdown — skip turn or wait for reboot next round.");
+    return;
+  }
+  if (k === "STEP" && r && ((r.altitude ?? 0) !== 0 || (r.inertia ?? 0) !== 0)) {
+    showToast("STEP requires grounded + still.");
+    return;
+  }
+  if (k === "STAND_UP" && r && !(r.statusEffects || []).includes("DOWN")) {
+    showToast("STAND UP requires DOWN status.");
     return;
   }
   pushModal("action-resolve", { id: Number(id), k, targetIds: [] });
@@ -3725,6 +3764,47 @@ let renderActionResolve = function (rid, k) {
         <p style="font-size:12px; color:var(--on-surface-muted)">${label} = ${cap} SU. Already spent this round: ${r.gspdSpent || 0}. Pick distance:</p>
         <input type="number" min="0" max="${remaining}" value="${clamped}" data-act="set-charge-distance" style="width:100%; padding:8px; margin-top:4px" />
         ${remaining <= 0 ? `<p class="label-small label-amber" style="margin-top:6px">⚠ No GSPD left this round.</p>` : ""}
+      `;
+    })()}
+    ${(() => {
+      if (k !== "BOOST") return "";
+      const unitCost = Math.max(1, Math.ceil((r.robotWeight || 0) / Math.max(1, r.boostPower || 0)));
+      const fuel = r.fuelCurrent ?? 0;
+      const maxTotal = Math.floor(fuel / unitCost);
+      const hDist = state.modal?.data?.hDist ?? 0;
+      const vDist = state.modal?.data?.vDist ?? 0;
+      const hClamped = Math.max(0, Math.min(maxTotal, hDist));
+      const remainAfterH = maxTotal - hClamped;
+      const vMin = -(r.altitude ?? 0);
+      const vClamped = Math.max(vMin, Math.min(remainAfterH, vDist));
+      const total = hClamped + Math.abs(vClamped);
+      const fuelCost = unitCost * total;
+      return `
+        <div class="label-small label-cyan" style="margin-top:10px">BOOST DISTANCE</div>
+        <p style="font-size:12px; color:var(--on-surface-muted)">Fuel: ${fuel}/${r.fuelMax}. Unit cost: ${unitCost}/SU. Max silhouettes: ${maxTotal}.</p>
+        <div style="display:flex; gap:8px; margin-top:6px; align-items:center">
+          <label style="font-size:12px; color:var(--on-surface-muted); min-width:80px">Horizontal</label>
+          <input type="number" min="0" max="${maxTotal}" value="${hClamped}" data-act="set-boost-hdist" style="flex:1; padding:8px" />
+        </div>
+        <div style="display:flex; gap:8px; margin-top:4px; align-items:center">
+          <label style="font-size:12px; color:var(--on-surface-muted); min-width:80px">Vertical</label>
+          <input type="number" min="${vMin}" max="${remainAfterH}" value="${vClamped}" data-act="set-boost-vdist" style="flex:1; padding:8px" />
+        </div>
+        <p style="font-size:12px; color:var(--on-surface-muted); margin-top:4px">Total: ${total} SU → fuel cost: ${fuelCost}. Alt: ${r.altitude ?? 0} → ${(r.altitude ?? 0) + vClamped}.</p>
+        ${fuel < unitCost ? `<p class="label-small label-amber" style="margin-top:6px">⚠ Not enough fuel for even 1 SU.</p>` : ""}
+      `;
+    })()}
+    ${(() => {
+      if (k !== "DECELERATE") return "";
+      const inertia = r.inertia ?? 0;
+      const fuel = r.fuelCurrent ?? 0;
+      const pts = state.modal?.data?.decelPts ?? Math.min(inertia, fuel);
+      const clamped = Math.max(0, Math.min(inertia, Math.min(fuel, pts)));
+      return `
+        <div class="label-small label-cyan" style="margin-top:10px">DECELERATE</div>
+        <p style="font-size:12px; color:var(--on-surface-muted)">Current inertia: ${inertia}. Fuel: ${fuel}. Each point costs 1 fuel.</p>
+        <input type="number" min="0" max="${Math.min(inertia, fuel)}" value="${clamped}" data-act="set-decel-pts" style="width:100%; padding:8px; margin-top:4px" />
+        ${inertia === 0 ? `<p class="label-small label-amber" style="margin-top:6px">⚠ Inertia already 0.</p>` : ""}
       `;
     })()}
     ${actionRollKind(k) ? `
@@ -3936,6 +4016,34 @@ handlers["resolve-action"] = ({ id, k }) => {
       }
       showToast(`Coolant Vent — ${dice.join(",")} rolled, ${hits} hits → −${removed} strain.`);
     }
+  } else if (k === "BOOST" && !isManual) {
+    const unitCost = Math.max(1, Math.ceil((r.robotWeight || 0) / Math.max(1, r.boostPower || 0)));
+    if ((r.fuelCurrent ?? 0) < unitCost) {
+      showToast(`Not enough fuel for BOOST (need ${unitCost}, have ${r.fuelCurrent ?? 0}).`);
+      _pickedPilot = null;
+      return;
+    }
+    const rawH = state.modal?.data?.hDist ?? 0;
+    const rawV = state.modal?.data?.vDist ?? 0;
+    const maxTotal = Math.floor((r.fuelCurrent ?? 0) / unitCost);
+    const hDist = Math.max(0, Math.min(maxTotal, rawH));
+    const hoverFloor = hoverFloorFor(r);
+    const vMin = -(r.altitude ?? 0);
+    const remainAfterH = maxTotal - hDist;
+    const vDist = Math.max(vMin, Math.min(remainAfterH, rawV));
+    const total = hDist + Math.abs(vDist);
+    const fuelCost = unitCost * total;
+    const oldInertia = r.inertia ?? 0;
+    const oldAltitude = r.altitude ?? 0;
+    r.fuelCurrent = (r.fuelCurrent ?? 0) - fuelCost;
+    r.inertia = oldInertia + hDist;
+    r.altitude = Math.max(hoverFloor, oldAltitude + vDist);
+    syncFlyingStatus(r);
+    r.statusEffects = (r.statusEffects || []).filter(s => s !== "CROUCHED");
+    r.systemStrain++;
+    if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) setShutdownPending(r);
+    r.pilotTokens = (r.pilotTokens || 0) + 1;
+    showToast(`BOOST h${hDist}/v${vDist} → fuel −${fuelCost}, inertia ${oldInertia}→${r.inertia}, altitude ${oldAltitude}→${r.altitude}`);
   } else if (!isManual) {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
@@ -3949,6 +4057,8 @@ handlers["resolve-action"] = ({ id, k }) => {
         const remaining = cap - (r.gspdSpent || 0);
         const clamped = Math.max(0, Math.min(remaining, dist));
         r.gspdSpent = (r.gspdSpent || 0) + clamped;
+        r.inertia = (r.inertia ?? 0) + clamped;
+        r.statusEffects = (r.statusEffects || []).filter(s => s !== "CROUCHED");
         const label = k === "MOVE" ? "GSPD" : "½GSPD";
         showToast(`${a.label} — moved ${clamped} SU, ${remaining - clamped} ${label} left this round.`);
       }
@@ -4087,8 +4197,25 @@ handlers["resolve-action"] = ({ id, k }) => {
           }
         }
       }
-      // Pivot: rotate facing by the chosen amount (mod 360).
-      if (k === "PIVOT") {
+      if (k === "STAND_UP") {
+        r.statusEffects = (r.statusEffects || []).filter(s => s !== "DOWN");
+        showToast("Stand Up — DOWN cleared.");
+      } else if (k === "DECELERATE") {
+        const rawPts = state.modal?.data?.decelPts ?? 0;
+        const pts = Math.max(0, Math.min(r.inertia ?? 0, Math.min(r.fuelCurrent ?? 0, rawPts)));
+        if (pts === 0) {
+          showToast("Decelerate — 0 points, nothing changed.");
+        } else {
+          r.fuelCurrent = (r.fuelCurrent ?? 0) - pts;
+          r.inertia = Math.max(0, (r.inertia ?? 0) - pts);
+          r.statusEffects = (r.statusEffects || []).filter(s => s !== "CROUCHED");
+          showToast(`Decelerate — inertia −${pts}, fuel −${pts}. Inertia now ${r.inertia}.`);
+        }
+      } else if (k === "STEP") {
+        r.statusEffects = (r.statusEffects || []).filter(s => s !== "CROUCHED");
+        showToast("Step — moved up to ½ Sil SU.");
+      } else if (k === "PIVOT") {
+        // Pivot: rotate facing by the chosen amount (mod 360).
         const rot = state.modal?.data?.rotateBy || 0;
         if (rot !== 0) {
           const before = r.facingDegrees ?? 0;
