@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.30 — 2026-06-06
+v0.0.31 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.31** (2026-06-06): Hip Shot now routes pilot strain via
+  the pilot picker (cost 1) — and Strafe's cost map entry, missing
+  from v0.0.29, is now correct. Reaction budget cap (2/round) still
+  blocks a 3rd attempt via the existing v0.0.13 enforcement.
 - **v0.0.30** (2026-06-06): Melee Assault gains the per-target
   token wiring (reusing Salvo's picker) + a rule-gate that flags
   when no melee weapon is equipped. Resolution still proceeds —

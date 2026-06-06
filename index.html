@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.30 (2026-06-06)
+  Version: 0.0.31 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2662,7 +2662,7 @@ let renderActionResolve = function (rid, k) {
 // Per spec: these four actions surface the pilot picker for pilot-strain routing.
 // (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
 function actionShowsPilotPicker(k) {
-  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE";
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT";
 }
 // True if the robot has at least one equipped melee weapon on a
 // non-destroyed component (item with "Melee" in its keywords array).
@@ -2680,7 +2680,7 @@ function robotHasMeleeWeapon(r) {
 // SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
 // per-target multiplication ships with the per-target dice flow in stage 6.
 function actionPilotStrainCost(k) {
-  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT") return 1;
+  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT") return 1;
   return 0; // HEAT_VENT cost is Free (Mental check); picker only routes identity
 }
 // Each action whose mechanics include rolling dice maps to a roll

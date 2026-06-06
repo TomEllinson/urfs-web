@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.30",
+    current_version: "0.0.31",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -363,8 +363,12 @@
       id: "dice.hip_shot_reaction",
       summary: "Hip Shot: reaction, single ranged at attacker. Threshold tweak per rulebook.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Available only as reaction; rolls ranged at attacker.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Catalog already wires bucket=reaction (budget enforced since v0.0.13) and actionRollKind=RANGED (since v0.0.2). Adding HIP_SHOT to actionShowsPilotPicker so pilot strain routes correctly. The 'rolls ranged at attacker' part is satisfied by opening the existing dice roller — the dice roller doesn't model attacker-specific +/-, so deferred to a future positional slice." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.31. Added HIP_SHOT to actionShowsPilotPicker and actionPilotStrainCost (cost 1 like other ranged actions). Also added STRAFE to actionPilotStrainCost (it was missing from the cost map but already on the picker list since 0.0.29). Verified 5-axis test: showsPicker true, cost 1, rollKind RANGED, 2× consecutive resolves bump sysStrain + pilotStrain + reactionsUsed correctly (1→2 each), 3rd attempt blocked by reaction-budget cap from v0.0.13 ('Both reactions spent this round.')." },
+      ],
     },
     {
       id: "dice.quick_strike_reaction",
