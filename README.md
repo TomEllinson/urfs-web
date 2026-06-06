@@ -121,10 +121,13 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.31 — 2026-06-06
+v0.0.32 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.32** (2026-06-06): Quick Strike now routes pilot strain
+  through the picker (cost 1) — the MELEE mirror of Hip Shot from
+  v0.0.31.
 - **v0.0.31** (2026-06-06): Hip Shot now routes pilot strain via
   the pilot picker (cost 1) — and Strafe's cost map entry, missing
   from v0.0.29, is now correct. Reaction budget cap (2/round) still

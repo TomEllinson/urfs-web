@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.31",
+    current_version: "0.0.32",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -374,8 +374,12 @@
       id: "dice.quick_strike_reaction",
       summary: "Quick Strike: reaction, single melee. Resolves after attacker.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Same surface as Hip Shot but melee.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Add QUICK_STRIKE to actionShowsPilotPicker + actionPilotStrainCost (cost 1). actionRollKind('QUICK_STRIKE')==='MELEE' already wired since v0.0.2. Reaction-budget enforcement since v0.0.13." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.32. Two-line catalog extension matching v0.0.31's Hip Shot pattern: QUICK_STRIKE added to actionShowsPilotPicker and actionPilotStrainCost. 6-axis verified: showsPicker true, cost 1, rollKind MELEE, sysStrain bumps to 1, pilotStrain bumps to 1, reactionsUsed 1/2." },
+      ],
     },
     {
       id: "dice.parry_threshold_reduce",
