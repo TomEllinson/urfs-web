@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.24 — 2026-06-06
+v0.0.25 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.25** (2026-06-06): Strain Clear now also clears the
+  Shutdown Pending flag when sysStrain drops below threshold —
+  closing the loop where you can use the incidental to escape the
+  Shutdown gate without rolling the reboot test.
 - **v0.0.24** (2026-06-06): Pilot Knockout. When a cockpit pilot's
   `pilotStrain` reaches `5 + training`, `isKO` flips true with a
   toast announcement. The PILOTS section dims the row to 0.5 and

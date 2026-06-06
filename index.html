@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.24 (2026-06-06)
+  Version: 0.0.25 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2668,6 +2668,7 @@ handlers["resolve-action"] = ({ id, k }) => {
     if (r.capacitorsRemaining > 0 && r.systemStrain > 0) {
       r.capacitorsRemaining--;
       r.systemStrain = Math.max(0, r.systemStrain - 1);
+      if (r.systemStrain < r.systemStrainThreshold) r.shutdownPending = false;
       showToast("−1 System Strain, −1 Cap.");
     } else {
       showToast("Can't clear strain.");

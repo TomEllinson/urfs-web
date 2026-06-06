@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.24",
+    current_version: "0.0.25",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -293,8 +293,12 @@
       id: "strain.strain_clear_action",
       summary: "Verify Strain Clear incidental: spend 1 capacitor, reduce 1 system strain. Already wired? Port if not.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Resolving Strain Clear with cap≥1: cap -= 1, sysStrain -= 1.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "STRAIN_CLEAR core mechanic already wired since v0.0.6: resolve-action checks cap > 0 AND sysStrain > 0, decrements both, toasts. ONLY gap: doesn't clear r.shutdownPending if strain drops below threshold after the clear. Adding that tail." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.25. STRAIN_CLEAR branch now also clears r.shutdownPending when systemStrain drops below threshold post-decrement. Verified: cap2/strain3/thresh2 → clear once → cap1/strain2/pending stays (still ≥ thresh); clear twice → cap0/strain1/pending false; cap0 → no-op. Stage 5 has Heat Vent left, then stage 5 closes." },
+      ],
     },
     {
       id: "strain.heat_vent_reaction",
