@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.29 — 2026-06-06
+v0.0.30 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.30** (2026-06-06): Melee Assault gains the per-target
+  token wiring (reusing Salvo's picker) + a rule-gate that flags
+  when no melee weapon is equipped. Resolution still proceeds —
+  player can resolve at the table — but the toast surfaces the
+  rule violation so it isn't silently absorbed.
 - **v0.0.29** (2026-06-06): Strafe composes from prior slices —
   Charge's distance picker (½GSPD spent) + Salvo's per-target
   saturation tokens. Three one-liner condition extensions; no new

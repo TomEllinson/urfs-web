@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.29 (2026-06-06)
+  Version: 0.0.30 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2601,7 +2601,7 @@ let renderActionResolve = function (rid, k) {
       `;
     })()}
     ${(() => {
-      if (k !== "SALVO" && k !== "STRAFE") return "";
+      if (k !== "SALVO" && k !== "STRAFE" && k !== "MELEE_ASSAULT") return "";
       const b = state.activeBattle;
       const targets = [...(b.p1Robots || []), ...(b.p2Robots || [])]
         .filter(x => x.robotId !== rid && !x.destroyed);
@@ -2663,6 +2663,18 @@ let renderActionResolve = function (rid, k) {
 // (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
 function actionShowsPilotPicker(k) {
   return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE";
+}
+// True if the robot has at least one equipped melee weapon on a
+// non-destroyed component (item with "Melee" in its keywords array).
+function robotHasMeleeWeapon(r) {
+  for (const c of (r.components || [])) {
+    if (c.isDestroyed) continue;
+    for (const e of (c.equipment || [])) {
+      const kw = (e.keywords || []).map(s => String(s).toLowerCase());
+      if (kw.includes("melee")) return true;
+    }
+  }
+  return false;
 }
 // Baseline pilot strain delta on RESOLVE.
 // SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
@@ -2776,8 +2788,16 @@ handlers["resolve-action"] = ({ id, k }) => {
         r.gspdSpent = (r.gspdSpent || 0) + clamped;
         showToast(`${a.label} — moved ${clamped} SU, ${remaining - clamped} ½GSPD left this round.`);
       }
-      // Salvo / Strafe: per-target saturation tokens + Mental check trigger.
-      if (k === "SALVO" || k === "STRAFE") {
+      // Melee Assault gate: requires at least one melee weapon on a
+      // non-destroyed component. The picker, token application, and
+      // strain bumps still fire so the player can choose to resolve at
+      // the table; the toast just flags the rule violation.
+      if (k === "MELEE_ASSAULT" && !robotHasMeleeWeapon(r)) {
+        showToast("No melee weapons equipped — resolve effects manually at the table.");
+      }
+      // Salvo / Strafe / Melee Assault: per-target tokens. Mental check
+      // trigger only applies to ranged (Salvo / Strafe).
+      if (k === "SALVO" || k === "STRAFE" || k === "MELEE_ASSAULT") {
         const tids = state.modal?.data?.targetIds || [];
         const b = state.activeBattle;
         const all = [...(b.p1Robots || []), ...(b.p2Robots || [])];
@@ -2792,7 +2812,9 @@ handlers["resolve-action"] = ({ id, k }) => {
             })
           : null;
         const mental = pilot?.mental || 0;
-        if (tids.length > mental && tids.length > 0) {
+        // Mental check trigger only on ranged actions (Salvo / Strafe).
+        const isRanged = k === "SALVO" || k === "STRAFE";
+        if (isRanged && tids.length > mental && tids.length > 0) {
           showToast(`${a.label} on ${tids.length} targets — Mental check (${mental}) needed.`);
         }
       }

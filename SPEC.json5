@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.29",
+    current_version: "0.0.30",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -352,8 +352,12 @@
       id: "dice.melee_assault_all_weapons",
       summary: "Melee Assault: one melee roll using every melee weapon. One token per weapon used.",
       depends_on: ["dice.charge_move_plus_melee"],
-      status: "pending",
+      status: "done",
       acceptance: "Resolves at robot's melee skill, weapons present in equipped list.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Gate RESOLVE on robot having ≥1 melee weapon in any non-destroyed component's equipment (keyword 'Melee'). DECISION_LOG: spec says 'token per weapon' but catalog brief says 'token per target' — going with catalog/rulebook L236 ('costs one token per target'). Reuse Salvo target picker by extending the SALVO/STRAFE condition to also include MELEE_ASSAULT." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.30. New robotHasMeleeWeapon(r) helper walks non-destroyed components' equipment[] for any item with 'Melee' in its keywords. Target-picker section condition + RESOLVE token-application branch + Mental-check trigger all extended to include MELEE_ASSAULT (Mental check is gated on isRanged=SALVO|STRAFE only so melee doesn't trip it). MELEE_ASSAULT branch toasts a gate warning when no melee weapon is equipped — doesn't BLOCK resolution (table-resolve fallback still works) but flags the rule violation. Two-toast outcome verified: gate warning then strain confirmation. With sword + 1 P2 target picked → token=1, sysStrain bumps, primary used." },
+      ],
     },
     {
       id: "dice.hip_shot_reaction",
