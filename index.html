@@ -658,6 +658,8 @@ const state = {
   activeBattle: null, // BattleState
   activeRobotId: null, // when drilled into per-robot battle screen
   modal: null, // { kind, data }
+  compareMode: false, // multi-select mode for garage.robot_compare
+  compareSelected: [], // ids of robots selected for compare (max 2)
 };
 
 function setState(patch) {
@@ -1139,6 +1141,14 @@ function render() {
     document.querySelector(".modal-back")?.addEventListener("click", (e) => {
       if (e.target.classList.contains("modal-back")) closeModal();
     });
+    // Rulebook deep-link scroll: after render, scroll to section if flagged.
+    const scrollTarget = document.querySelector("[data-rb-scroll]");
+    if (scrollTarget) {
+      const targetId = scrollTarget.dataset.rbScroll;
+      if (targetId) setTimeout(() => {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+    }
   }
 
   // Wire all action attributes after rendering. Centralised event
@@ -1203,9 +1213,11 @@ document.addEventListener("change", (e) => {
 // ════════════════════════════════════════════════════════════════════
 function exportImportBar() {
   return `
-    <div class="row-gap" style="margin-bottom: 10px; gap: 6px">
-      <button class="btn ghost" style="flex:1" data-act="export-json">EXPORT JSON</button>
-      <button class="btn ghost" style="flex:1" data-act="import-json">IMPORT JSON</button>
+    <div class="row-gap" style="margin-bottom: 10px; gap: 6px; flex-wrap:wrap">
+      <button class="btn ghost" style="flex:1; min-width:80px" data-act="export-json">EXPORT JSON</button>
+      <button class="btn ghost" style="flex:1; min-width:80px" data-act="import-json">IMPORT JSON</button>
+      <button class="btn ghost" style="flex:1; min-width:80px" data-act="enter-compare-mode">⚖️ COMPARE</button>
+      <button class="btn ghost" style="flex:1; min-width:80px" data-act="open-rulebook">📖 RULEBOOK</button>
     </div>
   `;
 }
@@ -1220,13 +1232,25 @@ renderGarage = function () {
       </div>
     `;
   }
+  const inCompare = state.compareMode;
+  const sel = state.compareSelected;
+  const compareBanner = inCompare ? `
+    <div style="background:var(--surface-3); border:1px solid var(--cyan); border-radius:var(--bevel); padding:10px 14px; margin-bottom:10px; display:flex; align-items:center; gap:10px">
+      <span style="flex:1; color:var(--cyan); font-weight:700; font-size:13px; letter-spacing:0.04em">PICK 2 TO COMPARE — ${sel.length}/2 selected</span>
+      <button class="btn ghost" style="padding:5px 10px; font-size:11px" data-act="exit-compare-mode">✕ CANCEL</button>
+    </div>
+  ` : "";
   const cards = state.robots.map(r => {
     const dep = depBP(r);
     const baseBp = calcRobotBP(r);
     const showDep = dep > baseBp;
     const robotValid = validateRobot(r).isValid;
+    const isSelected = inCompare && sel.includes(r.id);
+    const cardStyle = isSelected ? "box-shadow:0 0 0 2px var(--cyan)" : "";
+    const cardAct = inCompare ? "compare-select-robot" : "edit-robot";
     return `
-      <div class="list-card" data-act="edit-robot" data-id="${r.id}">
+      <div class="list-card" style="${cardStyle}" data-act="${cardAct}" data-id="${r.id}">
+        ${inCompare ? `<div style="width:24px; height:24px; border-radius:50%; border:2px solid ${isSelected ? "var(--cyan)" : "var(--surface-3)"}; background:${isSelected ? "var(--cyan)" : "transparent"}; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:12px; color:#07111a">${isSelected ? "✓" : ""}</div>` : ""}
         <div class="thumb">${r.imageData ? `<img src="${escapeHtml(r.imageData)}" />` : "🤖"}</div>
         <div style="flex:1; min-width:0">
           <h3>${escapeHtml(r.name || "Unnamed")}${robotValid ? "" : ` <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red, #ef4444);vertical-align:middle"></span>`}</h3>
@@ -1240,14 +1264,15 @@ renderGarage = function () {
             · ${(r.components || []).length} components
           </div>
         </div>
-        <button class="btn ghost" style="padding:6px 10px" data-act="delete-robot" data-id="${r.id}">✕</button>
+        ${inCompare ? "" : `<button class="btn ghost" style="padding:6px 10px" data-act="delete-robot" data-id="${r.id}">✕</button>`}
       </div>
     `;
   }).join("");
   return `
     ${exportImportBar()}
+    ${compareBanner}
     ${cards}
-    <button class="fab" data-act="new-robot">＋</button>
+    ${inCompare ? "" : `<button class="fab" data-act="new-robot">＋</button>`}
   `;
 };
 function depBP(robot, force) {
@@ -1295,6 +1320,32 @@ function newRobot() {
   };
 }
 async function saveRobot(r) { await dbPut("robots", r); }
+
+handlers["enter-compare-mode"] = () => {
+  setState({ compareMode: true, compareSelected: [] });
+};
+handlers["exit-compare-mode"] = () => {
+  setState({ compareMode: false, compareSelected: [] });
+};
+handlers["compare-select-robot"] = ({ id }) => {
+  const rid = Number(id);
+  const sel = [...state.compareSelected];
+  const idx = sel.indexOf(rid);
+  if (idx >= 0) {
+    sel.splice(idx, 1);
+    setState({ compareSelected: sel });
+  } else if (sel.length < 2) {
+    sel.push(rid);
+    if (sel.length === 2) {
+      // Auto-open compare modal when 2 are selected.
+      state.compareMode = false;
+      state.compareSelected = [];
+      pushModal("robot-compare", { idA: sel[0], idB: sel[1] });
+    } else {
+      setState({ compareSelected: sel });
+    }
+  }
+};
 
 // ────────────────────────────────────────────────────────────────────
 // Image picker for robot photos. Reads via FileReader → resizes to
@@ -3117,12 +3168,17 @@ function renderActionSheet(r) {
         ${groups[bucket].map(([k, a]) => {
           // PASS is always available — it ends the round even after primary is spent.
           const spent = k !== "PASS" && bucketSpent(bucket);
+          const ruleLineMatch = a.rules && a.rules.match(/\(L(\d+)\)/);
+          const ruleLine = ruleLineMatch ? Number(ruleLineMatch[1]) : null;
           return `
-          <button class="action-btn" data-act="open-action" data-id="${r.robotId}" data-k="${k}" ${spent ? "disabled" : ""}>
-            <span class="nm">${a.label}</span>
-            <span class="hint">${escapeHtml(a.brief)}</span>
-            ${spent ? `<span class="reason">${bucket.toUpperCase()} SPENT</span>` : ""}
-          </button>`;
+          <div style="display:flex; align-items:stretch; gap:4px">
+            <button class="action-btn" style="flex:1" data-act="open-action" data-id="${r.robotId}" data-k="${k}" ${spent ? "disabled" : ""}>
+              <span class="nm">${a.label}</span>
+              <span class="hint">${escapeHtml(a.brief)}</span>
+              ${spent ? `<span class="reason">${bucket.toUpperCase()} SPENT</span>` : ""}
+            </button>
+            ${ruleLine ? `<button style="background:var(--surface-1);border:1px solid rgba(77,208,225,0.20);border-radius:4px;padding:0 8px;color:var(--on-surface-muted);font-size:11px;font-weight:700;flex-shrink:0" data-act="open-rulebook" data-line="${ruleLine}" title="Rulebook L${ruleLine}">?</button>` : ""}
+          </div>`;
         }).join("")}
       </div>
     </div>
@@ -5474,6 +5530,8 @@ renderModal = function () {
     case "apply-damage":           body = renderApplyDamage(data.rid, data.cid, data.amount, data.type); break;
     case "frame-save":             body = renderFrameSave(data.rid, data.cid, data.fd, data.fm, data.breach, data.lastRoll); break;
     case "shutdown-reboot":        body = renderShutdownReboot(data.id, data.lastRoll); break;
+    case "robot-compare":          body = renderRobotCompare(data.idA, data.idB); break;
+    case "rulebook":               body = renderRulebookModal(data.line); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;
@@ -5551,6 +5609,954 @@ init().catch(err => {
   console.error(err);
   document.getElementById("screen").innerHTML = `<div class="empty"><h2>STARTUP ERROR</h2><p>${escapeHtml(err.message)}</p></div>`;
 });
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// ROBOT COMPARE  (garage.robot_compare)
+// Side-by-side stat comparison modal for two robots.
+// ════════════════════════════════════════════════════════════════════
+function renderRobotCompare(idA, idB) {
+  const rA = state.robots.find(r => r.id === idA);
+  const rB = state.robots.find(r => r.id === idB);
+  if (!rA || !rB) return "<p>Robot not found.</p>";
+
+  const stats = [
+    { label: "BP",          vA: calcRobotBP(rA),           vB: calcRobotBP(rB),           higherWins: true  },
+    { label: "WEIGHT",      vA: calcTotalWeight(rA),        vB: calcTotalWeight(rB),        higherWins: false },
+    { label: "MAX LOAD",    vA: calcMaxLoad(rA),            vB: calcMaxLoad(rB),            higherWins: true  },
+    { label: "POWER",       vA: calcRobotPower(rA),         vB: calcRobotPower(rB),         higherWins: true  },
+    { label: "FUEL MAX",    vA: calcFuelMax(rA),            vB: calcFuelMax(rB),            higherWins: true  },
+    { label: "SHIELDS MAX", vA: calcShieldsMax(rA),         vB: calcShieldsMax(rB),         higherWins: true  },
+    { label: "CAPACITORS",  vA: calcCapacitorPool(rA),      vB: calcCapacitorPool(rB),      higherWins: true  },
+    { label: "STRAIN THR",  vA: calcStrainThreshold(rA),    vB: calcStrainThreshold(rB),    higherWins: true  },
+    { label: "GSPD",        vA: calcGroundSpeed(rA),        vB: calcGroundSpeed(rB),        higherWins: true  },
+    { label: "BOOST",       vA: calcTotalBoost(rA),         vB: calcTotalBoost(rB),         higherWins: true  },
+    { label: "COMPONENTS",  vA: (rA.components||[]).length, vB: (rB.components||[]).length, higherWins: null  },
+    { label: "EQUIPMENT",   vA: (rA.components||[]).reduce((s,c)=>s+(c.equipment||[]).length,0),
+                            vB: (rB.components||[]).reduce((s,c)=>s+(c.equipment||[]).length,0), higherWins: null },
+  ];
+
+  function winChip(va, vb, higherWins, side) {
+    if (higherWins === null || va === vb) return "";
+    const aWins = higherWins ? va > vb : va < vb;
+    if ((side === "A" && aWins) || (side === "B" && !aWins)) {
+      return `<span class="chip green" style="margin-left:4px;font-size:10px">WIN</span>`;
+    }
+    return "";
+  }
+
+  const thumb = r => r.imageData
+    ? `<img src="${escapeHtml(r.imageData)}" style="width:56px;height:56px;object-fit:cover;border-radius:var(--bevel)" />`
+    : `<span style="font-size:28px">🤖</span>`;
+
+  const rows = stats.map(s => `
+    <tr>
+      <td style="padding:5px 6px;text-align:right;color:${s.vA > s.vB && s.higherWins || s.vA < s.vB && s.higherWins===false ? "var(--green)" : "var(--on-surface)"}">
+        ${s.vA}${winChip(s.vA,s.vB,s.higherWins,"A")}
+      </td>
+      <td style="padding:5px 6px;text-align:center;font-size:10px;font-weight:700;letter-spacing:0.06em;color:var(--on-surface-muted);white-space:nowrap">${s.label}</td>
+      <td style="padding:5px 6px;text-align:left;color:${s.vB > s.vA && s.higherWins || s.vB < s.vA && s.higherWins===false ? "var(--green)" : "var(--on-surface)"}">
+        ${winChip(s.vA,s.vB,s.higherWins,"B")}${s.vB}
+      </td>
+    </tr>
+  `).join("");
+
+  return `
+    <h2>⚖️ COMPARE</h2>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead>
+        <tr>
+          <th style="padding:6px;text-align:center;width:40%">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              ${thumb(rA)}
+              <span style="color:var(--cyan);font-weight:700;font-size:13px">${escapeHtml(rA.name||"Unnamed")}</span>
+              <span class="chip">SIL ${rA.silhouette||1}</span>
+            </div>
+          </th>
+          <th style="width:20%"></th>
+          <th style="padding:6px;text-align:center;width:40%">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              ${thumb(rB)}
+              <span style="color:var(--cyan);font-weight:700;font-size:13px">${escapeHtml(rB.name||"Unnamed")}</span>
+              <span class="chip">SIL ${rB.silhouette||1}</span>
+            </div>
+          </th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="actions">
+      <button class="btn ghost" data-act="modal-close">CLOSE</button>
+    </div>
+  `;
+}
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// RULEBOOK  (rules.rulebook_screen)
+// Embedded rulebook.md with search + accordion sections.
+// ════════════════════════════════════════════════════════════════════
+
+// Embedded verbatim from android/app/src/main/assets/rulebook.md
+// (752 lines, 14 chapters + appendix). Escape: none needed (no backticks
+// or ${ in source). Line numbers preserved for deep-link from action sheet.
+const RULEBOOK_MD = `# URFS — Universal Robot Fighting System
+## Rulebook Draft — App Edition
+
+---
+
+# Chapter 1: What is URFS?
+
+URFS is a miniatures wargame where players field teams of giant piloted Robots equipped with science fiction weapons and gear. Unlike traditional wargames where you pick units from a roster, every Robot in URFS is custom-built from Components loaded with Modules. The result is a game where no two Robots are alike — even when using the same model.
+
+URFS is miniatures-first: you measure your model, and that measurement — the Robot's Silhouette — determines its base stats and build limits. Anything works as a model: Gunpla, Transformers, 3D prints, action figures, other wargame minis. A Lego minifigure can fight a six-foot Mecha Godzilla if that's the battle you want.
+
+The game is designed to work with the URFS companion app, which handles Robot construction, stat tracking, and combat bookkeeping. This rulebook teaches you the rules of play; the app handles the math.
+
+URFS can simulate any giant robot setting: the lumbering firefights of Battletech, the acrobatic dogfights of Macross, the shonen battles of G Gundam, or wars between intelligent Robots like Transformers. It can also be played setting-agnostic — pit your favorite Megazord against Mazinger Z if you want.
+
+## How to Play
+
+URFS is played on any table the players agree on, with terrain and obstacles placed by agreement. Players need:
+
+- Robot models (any kind)
+- Six-sided dice (a good handful)
+- A measuring tool (tape measure, ruler)
+- The URFS companion app
+
+Players agree on a Build Point (BP) total for the game. Suggested levels:
+
+| BP Total | Scale |
+|----------|-------|
+| 600 | One-on-one or low-powered Robots |
+| 1200 | Well-equipped grunt squads |
+| 2000 | High-powered squads or one massive Robot |
+
+Players construct forces up to the agreed BP total using the app's Robot builder. The player with the lower point total is the **Assaulting Player** and begins with Priority. The player with the higher total is the **Entrenched Player**. The Entrenched Player places Robots first, alternating placement on opposite table edges.
+
+A player wins by disabling all enemy Robots or achieving the scenario objective. Robots can be disabled by destroying vital Components, knocking Pilots unconscious, or forcing Emergency Shutdown.
+
+*Note: Game length will vary by BP total and player count. Expect to playtest for calibration.*
+
+---
+
+# Chapter 2: Core Concepts
+
+## Scale Units
+
+URFS is scale-agnostic. All distances are measured in **Scale Units (SU)**, which can be any unit of measurement players agree on — inches, centimeters, or any custom unit. The game works the same at any scale.
+
+## Silhouette
+
+A Robot's **Silhouette** is its size in Scale Units, determined by measuring the model. Silhouette is the foundation stat — it determines shield capacity, strain thresholds, melee reach, movement scaling in flight, and more. Bigger Robots are more powerful but also bigger targets.
+
+Terrain also has a Silhouette, determined by the size of the terrain piece.
+
+During construction, half-sizes may be rounded up or down (a 5.5" model can be Sil 5 or Sil 6).
+
+## Hits
+
+A **Hit** in URFS is a 5 or 6 on a d6, unless otherwise specified. When a rule says "roll X dice," count the 5s and 6s.
+
+## The Facing Die
+
+Every Robot has a **Facing Die** — a standard d6 (opposite faces sum to 7) placed near the model with the 1-pip facing forward. The 1-pip always indicates the Robot's front. The die serves double duty: the 1-pip tracks facing direction, and the **top face** indicates Robot status. Rotate the die around the 1–6 axis to change status without losing facing.
+
+| Top Pip | Status |
+|---------|--------|
+| **2** | **Standing** — Normal operating state |
+| **3** | **Crouched** — Half Silhouette for enemy Ranged Attacks |
+| **4** | **Down** — Robot is prone |
+| **5** | **Flying** — Robot is airborne (place Altitude counter nearby) |
+| **6** | **Shutdown** — Robot is offline (2-pip now indicates forward facing) |
+
+## Lines of Fire
+
+To determine if one Robot can target another:
+
+1. Draw a line from the center of each Robot model to the other. If this line passes through terrain or obstacles, those may block or modify the shot (see Terrain).
+2. Draw a **Targeting Line** from the attacker's Facing Die to the defender's Facing Die. This determines which Components are on a targetable Facing.
+
+Lines of Fire have no height consideration. All targeting is calculated from a top-down perspective. Any terrain an overhead line would cross is still considered. This is a deliberate simplification — Robots are large enough that battlefield geometry is best resolved from above. Terrain matters for cover and obstruction, not line-of-sight trigonometry.
+
+## Components
+
+Robots are built from **Components**: Arms, Legs, Heads, a Core (chest/torso), and Utility Components. Each Component is attached to a Facing and filled with Modules that provide game effects. Components have HP, and destroying them removes their Modules and any attached equipment from play.
+
+The Core is special — it's the central Component that other Components attach to. Components can be dependent on other Components (an Arm attached to a Utility shoulder piece, for example).
+
+## Modules
+
+**Modules** are installed in Components during construction and provide all of a Robot's capabilities: boosters, weapons sockets, armor, shield generators, sensors, manipulators, and more. The full Module list is maintained in the companion app.
+
+**Horizontal Framing** (Core only) — This Robot's Silhouette counts as half (rounded up) for all Line of Fire and cover calculations. The Robot is built wide or long rather than tall — think quadrupedal Zoids, low-slung tanks, or centaur frames. Full Silhouette is still used for construction, melee reach, collision damage, and all other purposes.
+
+## Equipment and Weapons
+
+**Equipment** covers everything a Robot carries or mounts externally — weapons, shields, tools, and other devices. Equipment is defined by its Silhouette and Keywords. A piece of Equipment can have up to **3 x its Silhouette** in Keywords.
+
+**Weapons** are Equipment with the Melee or Ranged keyword. They are used to attack other Robots.
+
+Equipment costs BP equal to its number of Keywords multiplied by its Silhouette. Equipment weighs its Silhouette unless modified by Keywords. Equipment has a default Armor of 5 and is immune to Burst weapon damage.
+
+Equipment attaches to Robots via Sockets (internal or external mounts) or can be Grabbed by Manipulators. All Equipment is assumed to have a handle unless it has the Mount Point keyword.
+
+---
+
+# Chapter 3: Pilots
+
+Pilots provide the dice pools for all checks in URFS. The Robot provides the hardware; the Pilot provides the skill.
+
+## Pilot Stats
+
+Pilots have three stats. Each stat is a dice pool — the number of d6 rolled for checks using that stat.
+
+**Physical** — Toughness and physical prowess. Used for:
+- Fortitude Checks (resisting damage from impacts, Inertia, falls)
+- Dodge Reactions
+- Grappling (initiating and breaking free)
+
+**Mental** — Mental acuity and endurance. Used for:
+- Ranged Attack checks
+- Emergency Shutdown checks
+- Heat Vent checks
+- Salvo targeting overflow
+- Sets the **Pilot Strain threshold** (tokens beyond Mental = damage)
+
+**Training** — Rote memory, drilled responses, practiced skill. Used for:
+- Melee Attack checks
+- Can substitute for Physical or Mental on any **Priority Action** roll
+- Does NOT apply to Reactions, Fortitude Checks, Shutdown Checks, or other non-Priority checks
+
+Training is the "by-the-book" stat. A high-Training pilot executes textbook maneuvers reliably but doesn't have the raw toughness or mental endurance to handle reactive pressure. Think a pilot who has only trained in simulations — technically proficient but crumbles when things go sideways.
+
+## Pilot Tiers
+
+| Tier | BP Cost | Stat Points | Talent Slots |
+|------|---------|------------|--------------|
+| Rookie | 20 | 10 | 2 |
+| Experienced | 40 | 13 | 4 |
+| Veteran | 80 | 16 | 6 |
+
+All three stats must have at least 1 point after creation.
+
+## Pilot HP
+
+A Pilot's hit points equal **2 x Physical**. When all boxes are marked, the Pilot is unconscious.
+
+## AI Pilots
+
+AI Pilots are cheaper but limited:
+- No Talents
+- Stats purchased at 3 BP per point (1-for-3 basis)
+- **Hard cap**: Cannot have more Action Tokens than their Mental stat. Must Pass when they reach their limit.
+- AI Pilot modules are **toggleable**. If an AI Pilot module is toggled off (by an opponent's effect or power loss), the Robot immediately enters Emergency Shutdown.
+
+---
+
+# Chapter 4: The Dramatic Priority System
+
+URFS does not use alternating turns. Instead, it uses the **Dramatic Priority System** — an action economy modeled after the flow of a basketball game, where offense and defense shift rapidly and control of the action can change suddenly.
+
+One player has **Priority** at any given time. The Priority player takes actions with their Robots. The non-Priority player responds with Reactions. Priority changes hands when specific conditions are met.
+
+## Priority Pass Conditions
+
+Priority passes to the opponent when:
+
+1. The Priority player takes the **Pass** action
+2. A non-Priority Robot **deals damage** to a Priority Robot (a successful Reaction attack)
+3. A Priority Robot **whiffs** an attack roll (zero hits on a Ranged or Melee Attack check)
+4. A Priority Robot **fails an Emergency Shutdown check** (this is the natural shot clock — the longer you push, the more likely a Shutdown will cost you control)
+5. Any other game effect explicitly causes Priority to pass
+
+## Action Tokens
+
+Every time a Robot takes an action, an **Action Token** is placed on it. Tokens are unlimited — you can always take another action. But every token adds strain:
+
+- Tokens accumulate on the Pilot (tracked by the app), causing **Pilot Strain** when they exceed the Pilot's Mental stat.
+- Tokens also accumulate as **System Strain** on the Robot, risking **Emergency Shutdown** when they exceed the Robot's threshold.
+
+There is no ante step or pre-distribution of tokens. You act, you take a token, you deal with the consequences.
+
+## Three Action Tiers
+
+| Tier | When | Token Cost |
+|------|------|-----------|
+| **Priority Actions** | Only when you have Priority | 1 token (some cost more) |
+| **Reactions** | In response to enemy actions | 1 token per Reaction |
+| **Incidentals** | Free with each Priority Action | None |
+
+Every Priority Action comes with one free Incidental, taken before or after the Priority Action.
+
+## The Game Loop
+
+1. Priority player picks a Robot, declares a Priority Action, places a token on it
+2. Non-Priority player declares Reactions with eligible Robots (placing tokens as they react)
+3. Reactions resolve
+4. Priority Action resolves
+5. Pilot Strain checked — if tokens on Pilot exceed Mental, Pilot takes 1 damage
+6. System Strain checked — if Robot's System Strain exceeds threshold, make Shutdown check
+7. Priority passes if any pass condition was met
+8. Inertia moves resolve (highest to lowest Inertia; collisions resolved before next Robot moves)
+9. Repeat from step 1
+
+Play continues until one player wins.
+
+---
+
+# Chapter 5: Actions
+
+## Priority Actions
+
+Priority Actions can only be taken when you have Priority. Each Priority Action includes one free Incidental. The Priority player may use their Training stat in place of Physical or Mental for any Priority Action roll.
+
+**Pass** — Does not cost a token. Pass Priority to the opponent. Also reboots a Shutdown Robot. Clears all Pilot Strain tokens on the passing Robot (does NOT clear System Strain).
+
+**Run** — Move up to full Ground Speed in any direction. Half speed if moving in reverse (a direction that could draw a Line of Fire to the Robot's Rear facing). You may make a Physical check and move 2x the number of hits in additional Scale Units.
+
+**Charge** — Move up to Ground Speed in a non-reverse direction — OR — Boost any number of Scale Units (up to maximum), then make a Melee Attack at the end of movement.
+
+**Strafe** — Move up to Ground Speed in a non-reverse direction — OR — Boost any number of Scale Units, then make a Ranged Attack. May also make the Ranged Attack before moving.
+
+**Salvo** — Make Ranged Attacks with up to your full complement of ranged weapons. Costs one token per target. If the number of targets exceeds your Mental stat, make a Mental check against the number of targets. Fail = subtract the difference from each attack's dice pool.
+
+**Melee Assault** — Make Melee Attacks with up to your full complement of melee weapons. Costs one token per target. You choose the order of attacks. Each attack must be reacted to individually.
+
+**Boost** — Travel up to your maximum Boost distance. If Flying and changing direction off-Vector, make a Fortitude Check per the flying rules.
+
+**Double Incidental** — Take two Incidental actions, plus the free Incidental from the Priority Action (three total).
+
+## Reactions
+
+Reactions are taken in response to enemy actions, regardless of who has Priority. Each Reaction costs one Action Token.
+
+**Quick Move** — Move up to half Ground Speed. Cannot perform at Altitude > 0. May increase Inertia if you move far enough, potentially making you harder to hit. Requires legs.
+
+**Boost Dodge** — Make a Physical check and Boost up to the number of hits in any direction. Increase the required hits of the opponent's attack by your hits. Costs fuel as normal. Against Area attacks, does not reduce opponent's hits but still moves your Robot.
+
+**Block** — Redirect the incoming attack to a Component of your choice. If that Component is destroyed, the attacker picks the next Component for overflow.
+
+**Parry** — Roll a melee attack using your own melee weapon. Your hits increase the number the opponent needs to succeed. If no damage is dealt from their attack, you gain Priority.
+
+**Quick Strike** — Make a single Melee Attack. If against a Robot whose Priority Action includes a melee attack, Quick Strike resolves after theirs.
+
+**Hip Shot** — Make a single Ranged Attack after the current Priority Action resolves.
+
+**Incidental** — Perform any Incidental action as a Reaction.
+
+## Incidental Actions
+
+Incidentals are free — one comes with every Priority Action, and they cost no tokens. They can also be taken as a Reaction (costing a token in that case).
+
+**Crouch** — Only for Robots with legs, at Altitude 0 and Inertia 0. Silhouette counts as half for enemy Ranged Attacks. Crouched Robots get +2 dice on Ranged Attack checks with Grabbed weapons. Any movement, Boosting, or Altitude/Inertia change ends the Crouch.
+
+**Heat Vent** — Make a Mental check. Remove System Strain from this Robot equal to the number of hits. (Being an Incidental means it can be taken as a Reaction via "Incidental as Reaction," allowing strain venting on the opponent's turn.)
+
+**Toggle** — Turn a Component or Module on or off, or activate anything requiring a Toggle. This includes spending Capacitors for Shield recovery or System Strain clearing.
+
+**Step** — Move up to half Silhouette in Scale Units. Cannot Step if Altitude or Inertia > 0.
+
+**Grab/Draw Weapon** — Change an equipment location or add Grabs. Requires a Manipulator.
+
+**Drop** — Drop a held object or weapon adjacent to the Robot. Place a token on the map. Can be combined with a Draw as one Incidental.
+
+**Pivot** — Change Facing by up to 90 degrees. When Flying, may turn up to 180 degrees if Facing is not locked to Vector.
+
+**Decelerate** — Spend Fuel to reduce Inertia via Boosting. One Boost payment per point of Inertia. May only reduce to 0, not negatives.
+
+---
+
+# Chapter 6: Attacks and Damage
+
+## Ranged Attacks
+
+Ranged Attacks are made with weapons that have the Ranged keyword.
+
+1. **Declare**: Choose a weapon and designate a target Robot in range. Declare a target Component on a valid Facing (per Line of Fire rules). You may target beyond weapon Range, but lose 1 die per Scale Unit over.
+2. **Reactions**: The target declares Reactions if able.
+3. **Set Difficulty**: Base = 1 hit required.
+   - Target is smaller: +1 required hit per Sil difference
+   - Target is larger: -1 required hit per Sil difference (minimum 1)
+   - Add modifiers from Reactions, terrain, and other effects
+4. **Roll**: Mental + Module/Talent bonuses. Count hits (5s and 6s).
+5. **Resolve**: If hits meet or exceed difficulty, the attack hits. Deal the weapon's Damage to the targeted Component. If the target Blocked, they chose the Component instead.
+
+## Melee Attacks
+
+Melee Attacks are made with weapons that have the Melee keyword, or with any Arm (even without a weapon).
+
+1. **Declare**: Choose a weapon (or arm) and designate a target Robot. Declare a target Component. Target must be within **Reach** = Robot Reach + Weapon Reach (Weapon Sil + reach keywords).
+2. **Reactions**: Target declares Reactions if able.
+3. **Set Difficulty**: Same Silhouette comparison as Ranged.
+4. **Roll**: Training + Module/Talent bonuses + 2 dice per extra Manipulator gripping the weapon.
+5. **Damage**: Weapon Damage + (half Robot Strength per arm wielding the weapon). If the Robot has Inertia > 0, add [Inertia x Silhouette] bonus damage. Objects used as weapons take equal damage back.
+6. **Inertia Impact**: If Inertia was used in damage and it hits a Component containing a Pilot, that Pilot makes a Fortitude Check against the Inertia score. If the hit destroys a Component and damage overflows to a Component containing a Pilot, that Pilot makes the Fortitude Check against the full Inertia score, regardless of how much damage actually carried over.
+
+## Throwing
+
+Any Robot with a Manipulator can throw held objects.
+
+- Roll: **Physical** check (not Mental — this is not a Ranged Attack for keyword purposes)
+- Range: Robot Strength x Arms used, minus the weight of the thrown object
+- Damage: Weight of the object + any melee damage rating
+- Place a token for the thrown object near the target regardless of hit or miss
+- Requires two arms to throw two-handed weapons or heavy equipment
+
+## Grappling
+
+Any Robot with a Manipulator module can attempt to Grapple.
+
+1. **Initiate**: Declare a Grapple instead of a normal Melee Attack. The attacker's Pilot makes a **Physical** check opposed by a **Physical** check from a Pilot of the defender's choice.
+2. **Grappled**: If the attacker wins, the target is Grappled. A Grappled Robot cannot take Movement actions and has -1 die on Ranged Attacks.
+3. **Break Free**: The Grappled Robot spends an action and makes an opposed Physical check. If they win, they're free.
+4. **Throw**: A Robot grappling a target with Silhouette equal to or less than its own can spend an action to throw the target. Distance and damage are derived from the thrower's **Strength** stat. This is an inherent ability of strong Robots, not a keyword.
+
+## Damage Application
+
+1. Shields absorb damage first (whole-robot pool). If Shields remain, no Component damage.
+2. If Shields are depleted or absent, damage goes to the targeted Component.
+3. If the defender **Blocked**, they chose which Component takes the hit instead.
+4. If the damaged Component is destroyed, the **attacker** picks the next Component for overflow damage — even if the defender Blocked. Block only redirects the initial hit.
+5. **Frame Save**: When a **Frame Component** takes damage, roll Frame Durability in d6. Hits on **(7 - Frame Material)+**. Each hit reduces incoming damage by 1.
+
+Components are either **Frame** or **Non-Frame**. Frame Components (Core, structural Arms, structural Legs, structural Heads) get a Frame Save when their Armor is depleted. Non-Frame Components (Utility Components, Utility Arms/Legs/Heads) are destroyed when their Armor reaches 0 with no save.
+
+Damage is either **Physical** or **Energy**. Both apply the same way, but certain keywords interact differently with each type. Energy Weapons require Power to operate.
+
+---
+
+# Chapter 7: Strain and Shutdown
+
+Every action a Robot takes generates strain on two concurrent tracks.
+
+## Pilot Strain
+
+Each action places a token on the acting Pilot (tracked by the app). When a Pilot's token count exceeds their **Mental stat**, they take **1 damage** for each subsequent action resolved. This is flat 1 damage per action — not cumulative with previous overage.
+
+**Pass clears Pilot Strain.** When a Robot takes the Pass action, all Pilot tokens on that Robot are cleared. The Pilots catch their breath.
+
+When a Pilot is **incapacitated** (HP reaches 0), their Pilot tokens are removed — but System Strain is unaffected, since it was tracked independently all along.
+
+## System Strain
+
+Each action adds +1 **System Strain** to the Robot independently of Pilot tokens. System Strain is its own counter — it represents heat, mechanical wear, and system stress. Pilot tokens going up or down (from Pass, incapacitation, etc.) has no effect on System Strain.
+
+**System Strain Threshold** = ceil(Silhouette / 2) + active System Strain Coprocessor modules.
+
+When System Strain exceeds the threshold, the Robot must make an **Emergency Shutdown Check** after the action resolves.
+
+### Emergency Shutdown Check
+
+All conscious Pilots of the Robot make a combined **Mental check**. They need hits equal to or greater than the Robot's current System Strain.
+
+- **Pass**: The Robot stays active. Continue operating.
+- **Fail**: The Robot **shuts down**. All Pilot tokens are cleared. The Robot cannot take any actions until rebooted with a Pass action. **Priority also passes** to the opponent.
+
+### Clearing System Strain
+
+System Strain is NOT cleared by Pass. It persists across possessions. Two methods:
+
+- **Heat Vent** (Incidental): Mental check, remove System Strain equal to the number of hits.
+- **Capacitor Spend** (Toggle): Permanently deplete 1 Capacitor to remove 1 System Strain. This is the emergency option — effective but costly.
+
+## Capacitor Banks
+
+Capacitor Bank modules add the "Capacitor X" quality to a Robot (X = number of banks x 2). Capacitors serve three purposes from a single permanent pool:
+
+1. **Passive Shutdown Bonus**: +1 die to Emergency Shutdown checks per Capacitor remaining. Always active.
+2. **Shield Recovery**: Toggle to permanently spend 1 Capacitor and recover 10 Shield points.
+3. **System Strain Clearing**: Toggle to permanently spend 1 Capacitor and remove 1 System Strain.
+
+Once a Capacitor is spent, it is gone for the rest of the game. The tension: every Capacitor spent on shields or strain clearing reduces your passive Shutdown bonus.
+
+## Shields
+
+Shield Generator modules give a Robot whole-robot Shields equal to **Shield Generators x Silhouette**. Shields absorb damage before any Component takes a hit, regardless of facing. Shield Generators are toggleable (Core/Utility slot, weight 2, power -10).
+
+Shields do not regenerate on their own. Recovery requires spending Capacitors via Toggle.
+
+---
+
+# Chapter 8: Movement
+
+## Ground Movement
+
+To move on the ground, follow these steps:
+
+1. Choose a destination point on the battlefield.
+2. Draw a line from your Robot to that point. Consider anything in the path:
+   - Light Terrain can be breached if the Robot's Strength ≥ the terrain's Silhouette, costing extra movement equal to the terrain's Silhouette in SU (see Terrain). Heavy Terrain cannot be breached — go around or destroy it first.
+   - Other Robots can be moved past, but enemy Robots in Melee range may declare Reactions.
+   - Hindering Terrain costs 2x movement to pass through.
+3. Check Facing: draw a Targeting Line from the Facing Die to the destination.
+   - Non-reverse: full Ground Speed.
+   - Reverse (line could be drawn to Rear facing): half Ground Speed.
+4. Move the Robot and Facing Die, maintaining the same facing direction.
+
+Players may re-measure and re-declare movements freely while planning.
+
+## Boosting
+
+Boosting is rocket-assisted movement that consumes Fuel.
+
+**Boost Draw** = Robot Load / Boost Power (rounded up). This is the Fuel cost per Scale Unit of Boost on the ground.
+
+- On the ground: pay Boost Draw per Scale Unit, move that many SU.
+- In the air: each Scale Unit of Boost moves the Robot its Silhouette in Scale Units (see Flying).
+- Maximum Boost per action = Boost Power (in SU on ground, Silhouettes when Flying).
+
+## Robot Statuses
+
+**Standing** — Normal status. Full Silhouette. All actions available.
+
+**Crouched** — Half Silhouette for enemy Ranged Attacks. +2 dice on Ranged Attacks with Grabbed weapons. Requires legs, Altitude 0, Inertia 0. Any movement ends Crouch.
+
+**Down** — The Robot has fallen. Silhouette counts as 1/3. Cannot make Melee Attacks or Parry. Must spend 1/3 Silhouette in movement to stand up before any other movement.
+
+**Flying** — Altitude above 0. See Chapter 9.
+
+---
+
+# Chapter 9: Flying
+
+## Getting Airborne
+
+A Robot becomes Flying when its Altitude rises above 0. To gain Altitude, Boost straight up — paying Boost Draw for the Robot's Silhouette in Scale Units grants +1 Altitude. A Robot can gain multiple Altitude in a single Boost by paying multiple times.
+
+## The Vector Die
+
+Once airborne, a Robot gains a **Vector Die** — a second d6 showing the direction of flight.
+
+- If the Robot's Facing and flight direction are the same, the Facing Die doubles as the Vector Die. No extra die needed.
+- If they differ (the Robot is looking one direction while flying another), use a separate colored die for the Vector.
+- After any flight movement, the Vector Die rotates to face the direction just moved.
+
+## Movement in Flight
+
+Flying Robots can only move by Boosting — no Ground Speed actions.
+
+For every 1 Scale Unit of Boost paid, a Flying Robot moves **its Silhouette in Scale Units**. A Sil 6 Robot paying for 3 SU of Boost travels 18 Scale Units. The tradeoff: the Robot must move the full distance paid. No partial moves in the air.
+
+Maximum Boost per action is still limited by Boost Power.
+
+## Turning in Flight
+
+The Vector Die divides the sky into four 90-degree arcs: Front, Left, Right, and Rear. Moving within the Front arc is straightforward. Turning costs more — in both Fuel and Pilot stress.
+
+| Direction | Fuel Multiplier | Fortitude Check |
+|-----------|----------------|-----------------|
+| Front arc | 1x (normal) | None |
+| Left or Right arc | 2x Fuel | Physical vs. (Silhouettes moved x 2) |
+| Rear arc | 3x Fuel | Physical vs. (Silhouettes moved x 3) |
+
+Hard turns at high speed are extremely dangerous and can kill Pilots outright.
+
+**Example:** A Sil 6 Robot flying at Altitude 3 wants to reverse direction. It pays for 3 SU of Boost (moving 18 Scale Units), but into the Rear arc — Fuel cost is tripled. The Pilot makes a Fortitude Check against 3 Silhouettes moved x 3 = 9. Only the toughest Pilots survive regular reversals at speed.
+
+## Inertia
+
+Flying generates Inertia — momentum the Robot cannot instantly stop.
+
+- **Building Inertia**: +1 Inertia for each Silhouette of distance moved while Flying.
+- **Drift**: After each Priority Action resolves, all Robots with Inertia > 0 drift along their Vector Die direction by their Inertia in Scale Units. Highest Inertia moves first; same-bracket Robots move simultaneously (Priority player's Robots first).
+- **Decay**: Inertia decreases by (half Silhouette - Glide) after each action resolves. Glide modules (such as Wings) slow this decay.
+- **Landing**: If Altitude reaches 0, Inertia is immediately reduced to 0 and the Pilot makes a Fortitude Check against the reduction.
+
+### Inertia in Combat
+
+- **Defensive**: +1 hit needed per point of Inertia when targeting a Flying Robot. Fast-moving targets are hard to hit.
+- **Offensive**: Melee Attacks deal [Inertia x Silhouette] bonus damage. A flying charge hit is enormous. The target's Pilot also makes a Fortitude Check against the attacker's Inertia.
+
+## Losing Altitude
+
+Flying Robots sink after each Priority Action resolves:
+
+- **With Inertia > 0**: Lose (Silhouette - Glide) Altitude.
+- **With Inertia = 0**: Lose Silhouette Altitude (dropping like a stone without forward momentum).
+- **Hover Systems** set a minimum Altitude the Robot won't drop below. Stackable.
+
+## Falling
+
+When a Robot's Altitude drops to 0 and the decrease was more than 1 point:
+
+1. Pilot makes a **Physical check** against the Altitude decrease.
+2. **Pass**: Pilot makes a Fortitude Check against the Altitude decrease only. Robot lands Standing.
+3. **Fail**: Robot goes **Down**. Pilot makes a Fortitude Check against (Altitude decrease + Robot Silhouette). Hard landing.
+
+## Height and Lines of Fire
+
+Altitude lets you see over terrain:
+
+- For each point of Altitude, reduce the effective Silhouette of terrain between the Flying Robot and its target by 1. This works in both directions (shooting up at a flyer, or a flyer shooting down).
+- Flying Robots can move over terrain with Silhouette equal to or less than their Altitude.
+
+## Collisions
+
+A Collision occurs when a Robot moves into or through another Robot or terrain. Collisions do **not** pass Priority.
+
+### Collision Types
+
+**Chasing**: A Robot collides with another on the target's Rear Vector, or both Robots are on the ground. The colliding Robot's player assigns damage to both Robots.
+
+**Converging**: Head-on or angled collision between Robots with Inertia. Each player assigns their own incoming damage as if Blocking.
+
+### Collision Damage
+
+- **Robot vs. Robot**: (Movement + Inertia) x Silhouette, from the colliding Robot, applied to both.
+- **Robot vs. Terrain**: (pre-collision Movement x Silhouette) to both the Robot and the terrain. Remaining movement is lost if the terrain isn't destroyed.
+
+### After a Collision
+
+- **Converging**: Both Robots reduce Inertia by the greatest Inertia involved. If this produces a negative Inertia for one Robot, move it that many SU in the opposite direction and set its Inertia to 0.
+- **Chasing**: The colliding Robot's Inertia decreases and the target's Inertia increases, both by the collider's Inertia used in damage calculation.
+
+Collisions should be calculated before moving Robots into their colliding positions, to preserve Lines of Fire between Facing Dice for damage assignment.
+
+---
+
+# Chapter 10: Terrain
+
+Terrain in URFS is defined by its **Silhouette** — how big it is in Scale Units. There are two types.
+
+## Light Terrain
+
+Light Terrain obscures but does not fully block. Think trees, fences, rubble, light structures.
+
+**Cover:** Light Terrain provides cover only if the terrain's Silhouette is at least half the covered Robot's Silhouette. When a Line of Fire passes through Light Terrain that provides cover, split the attack's damage: half hits the terrain, half hits the Robot. No persistent HP tracking — terrain is either standing or destroyed.
+
+**Destruction:** Light Terrain is **destroyed** if the damage dealt to it in a single shot equals or exceeds 2x its Silhouette. When destroyed, any excess damage beyond the threshold passes through to the Robot. Replace destroyed Light Terrain with Hindering Terrain markers.
+
+**Breach:** A Robot with Strength equal to or greater than the terrain's Silhouette can move through Light Terrain, destroying it. This costs extra movement equal to the terrain's Silhouette in Scale Units.
+
+**Wieldable:** Light Terrain marked as **Wieldable** can be picked up by Robots with sufficient Strength and used as a melee weapon. Wieldable terrain gains the Melee keyword when grabbed, and is destroyed after a successful attack (it takes equal damage back).
+
+## Heavy Terrain
+
+Heavy Terrain blocks Lines of Fire. Think buildings, thick walls, solid rock.
+
+**Cover:** If a Line of Fire passes through Heavy Terrain, reduce the target Robot's effective Silhouette by the terrain's Silhouette. Cover only applies if the terrain's Silhouette is at least half the covered Robot's Silhouette. If the target's modified Silhouette is 0 or less, they **cannot be targeted**.
+
+**Destruction:** Heavy Terrain is **destroyed** if it takes damage equal to 5x its Silhouette in one instance. Replace with Hindering Terrain markers. Heavy Terrain cannot be breached by movement — destroy it first, then move through the rubble.
+
+## Hindering Terrain
+
+Hindering Terrain (rubble, wreckage, destroyed terrain) costs **2x movement** to pass through.
+
+## Terrain and Melee
+
+Terrain does not meaningfully affect melee combat between Robots. It matters for Lines of Fire and ranged cover, not close-quarters fighting.
+
+---
+
+# Chapter 11: Pilot Talents
+
+Pilots can have Talents that give them an edge in battle. The number of Talents a Pilot can have is limited by their Talent Slots (2 for Rookies, 4 for Experienced, 6 for Veterans). Talents cost additional BP added to the Pilot's base cost. Some Talents have stat requirements.
+
+AI Pilots cannot have Talents.
+
+## Physical Talents
+
+**Tank** (+5 BP) — Pilot HP is Physical x 3 instead of Physical x 2.
+
+**Neural Link** (+7 BP) — Physical is used instead of Mental for determining when Pilot Strain causes damage. If a Frame Component on this Pilot's Robot is destroyed, the Pilot makes a Fortitude Check against (remaining Frame Components + 3) and takes the difference as damage.
+
+**Fast Fingers** (+2 BP) — Whenever you take a Toggle action, you may take 2 instead.
+
+**G-Adapted** (+4 BP) — +4 dice to Fortitude Checks made to resist Inertia changes or Vector changes while Flying.
+
+**Cool Head Under Pressure** (+5 BP) — When this Pilot rolls a Fortitude Check after taking a Reaction and takes no damage, remove one Action Token from the Pilot.
+
+**Quick Troubleshooter** (+2 BP) — When the Robot would check for Emergency Shutdown due to power loss, you may perform Toggles equal to 2x Pilot Mental before making the check. If Power output is neutral or positive after this, skip the Shutdown Check.
+
+**Martial Artist** (+5 BP) — Add Physical to Training for checks made for Melee Attacks and Parry.
+
+**Gunslinger** (+5 BP) — When taking the Salvo action, if you must make a Mental check for more targets than your Mental stat, add +1 die to the check for each target past the first.
+
+**Deadeye** (+6 BP) — After rolling a single-target Ranged Attack, you may add an additional Action Token to this Pilot to make the attack Unblockable.
+
+**Coordinated** (+4 BP) — While Pilot HP is above half, this Pilot's Strain threshold is 1.5x Mental (rounded up) instead of Mental.
+
+**Coolant Manager** (+5 BP) — Once per Priority Action, you may perform a Heat Vent as an additional Incidental. The Pilot takes 1 damage each time this talent is used.
+
+**Sharpshooter** (+3 BP) — When taking the Salvo Action targeting only 1 target, you may burn your free Incidental. If you do, add +3 dice to the attack. Only works at Inertia 0.
+
+## Mental Talents
+
+**Calm Under Fire** (+5 BP) — This Pilot's Strain threshold is Mental + 2. Always active, no conditions. The pilot who stays cool longest.
+
+**Overclock** (+3 BP) — Once per game, this Pilot may double their Mental stat for a single Emergency Shutdown check. The Pilot takes 2 damage regardless of outcome.
+
+## Training Talents
+
+**Ace Pilot** (+10 BP) — +5 Stat Points. Takes two Talent Slots.
+
+**Brawler** (+3 BP) — When making a melee attack with no Grabbed weapon (bare arm), add half Strength to the attack's Damage.
+
+**Combo Fighter** (+5 BP) — When making a Melee Assault with a weapon held in more than one Manipulator, make one separate attack per Manipulator with that weapon.
+
+**Commander** (+10 BP) — While this Pilot is conscious, other Pilots on the same team may use this Pilot's Mental stat as their Strain threshold. When the Commander is incapacitated, all Pilots using this threshold immediately revert to their own Mental. Any Pilot whose current token count exceeds their own Mental takes Strain damage for each token over — all at once.
+
+**Fighter Pilot** (+2 BP) — While at Altitude > 0, when hit by an attack from your Rear Vector, make a Training Check and reduce damage by the number of hits.
+
+**Commando** (+2 BP) — After deployment, move up to maximum Ground Speed before the game starts.
+
+**Heavy Weapons Specialist** (+4 BP) — If your Robot has a weapon with a larger Silhouette than the Robot's own, add +2 dice when attacking with it.
+
+**Disarm** (+3 BP) — When making a Melee Attack, you may instead make an opposed Training Check to end a target's Grab on a piece of Equipment. If your hits exceed theirs, that Grab ends and the Equipment may be Dropped.
+
+## General Talents
+
+**Last Stand** (+4 BP) — When this Pilot's HP is at 10% or less (rounded up, minimum 1), add +3 dice to all attack rolls. The desperate final push.
+
+**Shield Rider** (+3 BP) — While the Robot has Shields remaining, this Pilot's Strain threshold is increased by 2.
+
+**Evasive Instinct** (+3 BP) — When this Pilot's Robot has Inertia > 0, add Inertia as bonus dice to Dodge and Boost Dodge Reactions.
+
+## Strain-Keyed Talents
+
+**Berserker Protocol** (+6 BP) — When this Pilot has Strain Tokens (Action Tokens beyond Mental), add dice equal to Strain Token count to any attack roll. The Pilot takes damage equal to the dice added. The desperation swing.
+
+**Combat Instinct** (+5 BP) — When this Pilot has Strain Tokens, add dice equal to Strain Token count to Reaction rolls. The Pilot takes 1 damage per Reaction taken while over Mental threshold.
+
+**Override** (+4 BP) — When making an Emergency Shutdown check, add Strain Token count as bonus dice. The Pilot takes 1 damage per Shutdown check made with this talent.
+
+---
+
+# Chapter 12: Equipment Keywords
+
+Equipment is defined by Keywords. Keywords with **(W)** designate Equipment as a Weapon. Keywords with **(M)** may be taken multiple times.
+
+**Equipment costs** = number of Keywords x Silhouette in BP.
+**Max Keywords** = 3 x Equipment Silhouette.
+**Equipment Weight** = its Silhouette (unless modified).
+**Equipment Armor** = 5 (default). Immune to Burst damage.
+
+Weapons may not be used to Block.
+
+When calculating damage from Keywords, multiplication occurs after all other modifications.
+
+## Weapon Type Keywords
+
+**Melee (W)** — Weapon may be used in Melee. Deals Silhouette in Damage. Immune to Physical Damage.
+
+**Ranged (W)** — Weapon is a Ranged Weapon. Range = Sil x 3. Deals Silhouette in Damage.
+
+## Damage Modifier Keywords
+
+**Edge** — +Sil Damage. Requires Melee.
+
+**Energy Edge** — Damage counts as Energy instead of Physical. +Sil Damage. Power -5. Immune to Energy Damage while Parrying. Requires Edge. Cannot combine with Energy Weapon.
+
+**Energy Weapon (M)** — Damage is Energy. +2 Damage x Sil. Melee Energy Weapons are immune to Energy Damage and weight is divided by 3. Energy Weapons impart no Inertia. Power: -5 x Sil. Requires Melee or Ranged.
+
+**Explosive** — Deals Damage to hit Component, half Damage to any attached Component. Pilot checks against half Damage received to cockpit-containing Component as Inertia. Requires Ranged.
+
+**Scatter** — Damage = 2 x Sil, but Range = Sil x 2 (shorter than standard). Hits all targetable Components of target on success. Requires Ranged.
+
+**Limited Ammo** — +2 x Sil Damage, but may only fire half Silhouette times. Requires Ranged.
+
+**Two-handed** — Multiply Damage by 2. Melee weapons may still be wielded one-handed but lose the multiplier. Requires Melee or Ranged.
+
+**Overcharged (M)** — +Sil Damage per instance. Weapon takes Sil damage to itself each time it is used. Small weapons punch above their weight but burn out fast. Requires Melee or Ranged.
+
+**Penetrating (M)** — Each instance bypasses weapon Silhouette in Component Armor. If total bypass exceeds the Component's remaining Armor, Frame Components make a Frame Save; Non-Frame Components are destroyed outright. Requires Ranged.
+
+## Range and Reach Keywords
+
+**Extended Range (M)** — +Sil to Range per instance. Requires Ranged.
+
+**Long Range** — Double the weapon's Range (after keyword modifiers). Minimum range equals the pre-doubled range. Requires Ranged.
+
+**Reach Extender (M)** — +half weapon Sil to Reach per instance. Requires Melee.
+
+## Projectile Keywords
+
+**Auto (M)** — May target one additional target per Ranged Attack per instance of this keyword, removing 1 die per additional target. When firing on a single target, add +1 die per instance and +1 Damage per net hit. Requires Ranged.
+
+**Burst** — Projectile explodes on impact, dealing Damage to everything within 1 SU per Silhouette. Damage decreases by 1 Sil per SU from impact. Pilot can target a specific map point for -2 dice (any hits succeed). Place a die at impact point and draw Lines of Fire from all horizontal faces. Requires Ranged.
+
+**Indirect** — Ignore Lines of Fire; target any legal target within range. Attack gets -2 dice. Requires Ranged.
+
+**Kinetic (M)** — Hits apply +1 Inertia per instance (does not increase Damage, but forces a Fortitude Check). If the firing Robot is Flying, it moves 1 SU per instance in the opposite direction. Does nothing on Energy Weapons. Requires Ranged.
+
+**Inertia Additive (M)** — +1 Inertia per instance added to a Melee hit. Does not increase Damage; affects Fortitude Checks only. Requires Melee.
+
+## Mounting and Attachment Keywords
+
+**Mount Point** — Equipment may be mounted on a Socket. Assumed to have no handle; cannot be operated if unmounted.
+
+**Extending Grip** — Makes Mount Point equipment drawable/holsterable. May also be Grabbed. If a Weapon, treat the Mount Point as a Manipulator for bonus dice. Requires Mount Point.
+
+**Link Point** — May link to another piece of Equipment with Link Point. Linked Equipment is treated as one piece; Silhouette = greatest of its parts, but each piece calculates Damage from its own Sil. Requires one Link Point per attached piece. Linked Weapons fire with one Attack check but deal damage as separate instances.
+
+**Tethered** — Equipment can mount to a Tether Socket, receiving Power and Fuel.
+
+**Corded** — Tethered Equipment cannot move outside the Robot's Reach. Requires Tethered.
+
+## Utility Keywords
+
+**Power Cell (M)** — +5 Power.
+
+**Armored (M)** — +5 Equipment Armor. +1 Weight.
+
+**Guard** — Equipment guards the Component it is grabbed by or attached to. If on a Core Mount Point, guards that facing. Guarding Equipment takes damage in place of the Guarded Component.
+
+**Energy-Reflective Coating** — Equipment is immune to Energy Damage while Armor is at full.
+
+**Module Slot** — Adds a Module Slot to this Equipment. Reduces max keywords by 1.
+
+**Extended Magazine (M)** — Weapon may fire an additional half Silhouette times before depleting. +1 Weight. Requires Limited Ammo.
+
+---
+
+# Chapter 13: Robot Construction
+
+Robot construction is handled entirely by the URFS companion app. The app's builder walks you through the process of assembling Components, filling them with Modules, attaching Equipment, and assigning Pilots. Refer to the app for construction rules, point costs, and build validation.
+
+---
+
+# Chapter 14: Scenarios
+
+*This chapter is under development. Scenarios will provide structured victory conditions, deployment rules, and special battlefield conditions beyond simple elimination.*
+
+---
+
+# Appendix: Quick Reference
+
+## Priority Pass Conditions
+1. Pass action taken
+2. Non-Priority Robot deals damage to Priority Robot
+3. Priority Robot whiffs an attack (zero hits on attack roll)
+4. Priority Robot fails Emergency Shutdown check
+5. Game effect explicitly causes pass
+
+## Dice
+- Hit = 5 or 6 on d6
+- Frame Save hit = (7 - Frame Material)+ on d6
+
+## Strain Thresholds
+- Pilot Strain: tokens > Mental = 1 damage per action
+- System Strain: tokens > ceil(Sil/2) + Coprocessors = Shutdown check
+- Shutdown Check: combined Mental, need hits >= System Strain
+
+## Damage Types
+- Physical and Energy
+- Both apply equally; keyword interactions differ
+
+## Key Formulas
+- Shields = Shield Generators x Silhouette
+- Boost Draw = Robot Load / Boost Power (rounded up)
+- Frame Save threshold = 7 - Frame Material
+- Equipment cost = Keywords x Silhouette (BP)
+- Max Keywords = 3 x Equipment Silhouette
+- Pilot HP = 2 x Physical (3x with Tank talent)
+- Collision Damage = (Movement + Inertia) x Silhouette`;
+
+// Build a line→index map and section list from RULEBOOK_MD at load time.
+// Sections = lines starting with "# " or "## ".
+const _rbLines = RULEBOOK_MD.split('\n');
+const _rbSections = [];
+(function() {
+  let curSection = null;
+  for (let i = 0; i < _rbLines.length; i++) {
+    const line = _rbLines[i];
+    if (/^## /.test(line)) {
+      if (curSection) curSection.endLine = i - 1;
+      curSection = { title: line.replace(/^#+\s*/, ''), startLine: i + 1, endLine: _rbLines.length - 1, level: 2 };
+      _rbSections.push(curSection);
+    } else if (/^# /.test(line)) {
+      if (curSection) curSection.endLine = i - 1;
+      curSection = { title: line.replace(/^#+\s*/, ''), startLine: i + 1, endLine: _rbLines.length - 1, level: 1 };
+      _rbSections.push(curSection);
+    }
+  }
+})();
+
+// Minimal regex-based markdown renderer. Handles #/##/###, **bold**, *italic*,
+// `code`, tables (simplified), list items, hr, paragraph line breaks.
+function renderMd(text) {
+  const lines = text.split('\n');
+  let out = '';
+  let inList = false;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code style="background:rgba(77,208,225,0.10);padding:1px 4px;border-radius:3px;font-family:monospace">$1</code>');
+    if (/^---+$/.test(raw)) { if (inList) { out += '</ul>'; inList = false; } out += '<hr style="border:none;border-top:1px solid var(--surface-3);margin:10px 0">'; continue; }
+    if (/^### /.test(raw)) { if (inList) { out += '</ul>'; inList = false; } out += `<strong style="display:block;margin:8px 0 4px;color:var(--on-surface)">${line.replace(/^###\s*/,'')}</strong>`; continue; }
+    if (/^## /.test(raw)) { if (inList) { out += '</ul>'; inList = false; } out += `<div style="font-weight:800;color:var(--cyan);font-size:13px;margin:10px 0 4px;letter-spacing:0.04em">${line.replace(/^##\s*/,'')}</div>`; continue; }
+    if (/^# /.test(raw)) { if (inList) { out += '</ul>'; inList = false; } out += `<div style="font-weight:800;color:var(--cyan);font-size:15px;margin:14px 0 6px;letter-spacing:0.02em">${line.replace(/^#\s*/,'')}</div>`; continue; }
+    if (/^\| /.test(raw)) { if (inList) { out += '</ul>'; inList = false; } out += `<div style="font-size:11px;color:var(--on-surface-muted);font-family:monospace;white-space:pre-wrap;padding:1px 0">${line}</div>`; continue; }
+    if (/^- /.test(raw)) { if (!inList) { out += '<ul style="padding-left:16px;margin:4px 0">'; inList = true; } out += `<li style="margin:2px 0;font-size:13px;color:var(--on-surface)">${line.replace(/^-\s*/,'')}</li>`; continue; }
+    if (/^\d+\. /.test(raw)) { if (!inList) { out += '<ol style="padding-left:16px;margin:4px 0">'; inList = true; } out += `<li style="margin:2px 0;font-size:13px;color:var(--on-surface)">${line.replace(/^\d+\.\s*/,'')}</li>`; continue; }
+    if (inList) { out += '</ul>'; inList = false; }
+    if (raw.trim() === '') { out += '<div style="height:6px"></div>'; continue; }
+    out += `<p style="margin:3px 0;font-size:13px;color:var(--on-surface)">${line}</p>`;
+  }
+  if (inList) out += '</ul>';
+  return out;
+}
+
+handlers["open-rulebook"] = ({ line }) => {
+  pushModal("rulebook", { line: line ? Number(line) : null });
+};
+
+function renderRulebookModal(targetLine) {
+  const searchId = "rb-search-" + Date.now();
+  // Build section accordion HTML. Each ## heading is a collapsible section.
+  // targetLine (if set) will auto-expand the containing section.
+  const sectionHtml = _rbSections.filter(s => s.level === 1).map((s, si) => {
+    const sectionLines = _rbLines.slice(s.startLine - 1, s.endLine + 1);
+    const lineNum = s.startLine;
+    // Find sub-sections (## headings within this chapter).
+    const sectionMd = sectionLines.join('\n');
+    const autoOpen = targetLine != null && targetLine >= s.startLine && targetLine <= s.endLine;
+    const anchorId = `rb-sec-${si}`;
+    return `
+      <div class="bucket primary${autoOpen ? ' open' : ''}" id="${anchorId}" style="margin-bottom:6px">
+        <div class="header" style="cursor:pointer" onclick="this.parentElement.classList.toggle('open');this.nextElementSibling.style.display=this.parentElement.classList.contains('open')?'block':'none'">
+          <span style="font-size:11px;color:var(--on-surface-dim);font-family:monospace;min-width:32px">L${lineNum}</span>
+          ${escapeHtml(s.title)}
+        </div>
+        <div style="display:${autoOpen?'block':'none'};padding:8px 12px">
+          ${renderMd(sectionMd)}
+        </div>
+      </div>`;
+  }).join('');
+
+  const targetSecIdx = targetLine != null
+    ? _rbSections.findIndex(s => s.level === 1 && targetLine >= s.startLine && targetLine <= s.endLine)
+    : -1;
+  const scrollAttr = targetSecIdx >= 0 ? `data-rb-scroll="rb-sec-${targetSecIdx}"` : "";
+
+  return `
+    <h2>📖 RULEBOOK</h2>
+    <input id="${searchId}" type="text" placeholder="Search rulebook…"
+      style="width:100%;background:var(--surface-1);border:1px solid var(--surface-3);border-radius:var(--bevel);padding:8px 10px;color:var(--on-surface);margin-bottom:10px"
+      oninput="(function(q){
+        const sections = document.querySelectorAll('#rb-sections-list > div.bucket');
+        q = q.toLowerCase();
+        sections.forEach(sec => {
+          if(!q) { sec.style.display=''; return; }
+          const text = sec.textContent.toLowerCase();
+          sec.style.display = text.includes(q) ? '' : 'none';
+          if(text.includes(q)) { sec.classList.add('open'); sec.children[1].style.display='block'; }
+        });
+      })(this.value)" />
+    <div id="rb-sections-list" style="overflow-y:auto;max-height:62vh" ${scrollAttr}>
+      ${sectionHtml}
+    </div>
+    <div class="actions" style="margin-top:10px">
+      <button class="btn ghost" data-act="modal-close">CLOSE</button>
+    </div>
+  `;
+}
 </script>
 </body>
 </html>

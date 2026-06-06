@@ -468,8 +468,9 @@
       },
       {
         id: "garage.robot_compare",
-        status: "pending",
+        status: "done",
         size: "M",
+        history: [{ when: "2026-06-06", note: "shipped — COMPARE button + multi-select banner + 3-col modal with 12 stat rows + winner chips (ties handled)" }],
         summary: "Side-by-side stat comparison of two robots.",
         acceptance: [
           "Garage list gets a COMPARE button (icon) above the list.",
@@ -481,8 +482,9 @@
       },
       {
         id: "rules.rulebook_screen",
-        status: "pending",
+        status: "done",
         size: "M",
+        history: [{ when: "2026-06-06", note: "shipped — full 752-line rulebook embedded, modal w/ search + accordion sections + line numbers + tiny markdown renderer + action-sheet (?) deep links" }],
         summary: "In-app rulebook with search + section deep-link.",
         acceptance: [
           "New tab or modal: RULEBOOK. Content: copy rulebook.md from Android assets into a constant in index.html (we already have it implicitly).",
