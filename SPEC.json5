@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.34",
+    current_version: "0.0.35",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -411,8 +411,12 @@
       id: "modules.toggle_costs_and_reqs",
       summary: "Module toggle (on/off) validates: fuel ≥ cost, power available. Persists active state.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Toggle a fuel-cost-2 module with fuel=1 → toast: 'not enough fuel'.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Current toggle-mod handler flips toggledOn without any cost/req validation. Add: fuel cost = MODULES_BY_ID[mid].fuelToActivate || 0; turning ON refuses if r.fuelCurrent < cost; turning OFF is always allowed (frees fuel/power back). Power validation: turning ON refuses if net power deficit exceeds available — compute power budget = sum of module.power across non-destroyed components, refuse if deficit > 0 after activation." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.35. toggle-mod handler now gates ON-flips on (a) fuel ≥ MODULES_BY_ID[id].fuelToActivate (defaults to 0), and (b) net power budget across all currently-active modules in non-destroyed components plus the candidate's power contribution stays ≥ 0. Negative-net refusal toasts the projected deficit. Successful ON deducts fuel. OFF flips bypass all checks. 4 cases verified at synthetic fuel_burner (fuel cost 2, power -3): fuel=1 refused; fuel=5 no-reactor refused (-5 deficit); fuel=5 with reactor activated + fuel 5→3; OFF flip with fuel=0 allowed silently." },
+      ],
     },
     {
       id: "modules.capacitor_pool",

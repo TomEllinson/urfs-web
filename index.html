@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.34 (2026-06-06)
+  Version: 0.0.35 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -3373,7 +3373,38 @@ handlers["toggle-mod"] = ({ id, cid, mi }) => {
   const c = r.components.find(x => x.componentId === Number(cid));
   if (!c) return;
   const m = c.modules[parseInt(mi, 10)];
-  m.toggledOn = m.toggledOn === false ? true : false;
+  const def = MODULES_BY_ID[m.moduleId];
+  const turningOn = m.toggledOn === false;
+  // ON requires: fuel ≥ activation cost, and net power balance stays ≥ 0
+  // after activating (def.power is negative for consumers, positive for
+  // reactors). OFF flips are always allowed — they free fuel/power back.
+  if (turningOn) {
+    const fuelCost = def?.fuelToActivate || 0;
+    if (fuelCost > 0 && (r.fuelCurrent ?? 0) < fuelCost) {
+      showToast(`Not enough fuel (need ${fuelCost}, have ${r.fuelCurrent || 0}).`);
+      return;
+    }
+    // Power: sum of `power` across all ACTIVE non-destroyed modules
+    // (toggleable + currently on, or non-toggleable). Then check the
+    // candidate's power contribution doesn't push net < 0.
+    let netPower = 0;
+    for (const comp of (r.components || [])) {
+      if (comp.isDestroyed) continue;
+      for (const mod of (comp.modules || [])) {
+        const mdef = MODULES_BY_ID[mod.moduleId];
+        if (!mdef) continue;
+        const on = mdef.toggleable ? (mod.toggledOn !== false) : true;
+        if (on) netPower += (mdef.power || 0);
+      }
+    }
+    const candidatePower = def?.power || 0;
+    if (netPower + candidatePower < 0) {
+      showToast(`Not enough power (would drop net to ${netPower + candidatePower}).`);
+      return;
+    }
+    if (fuelCost > 0) r.fuelCurrent = (r.fuelCurrent ?? 0) - fuelCost;
+  }
+  m.toggledOn = turningOn;
   dbPut("battles", state.activeBattle);
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };

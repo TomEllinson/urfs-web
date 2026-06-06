@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.34 — 2026-06-06
+v0.0.35 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.35** (2026-06-06): Module toggle gates (stage 7 begins).
+  Turning a module ON checks `fuelToActivate` against current fuel
+  AND the post-activation power net stays ≥ 0; refuses with a
+  toast if either fails. Turning OFF is always allowed. Successful
+  ON deducts fuel.
 - **v0.0.34** (2026-06-06): Boost Dodge wired. Fuel gate refuses
   if `fuelCurrent < 1`; otherwise the reaction deducts 1 fuel and
   toasts the +1 die on the Physical check (the dice roller picks
