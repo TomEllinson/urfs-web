@@ -525,8 +525,9 @@
       },
       {
         id: "schematic.three_d_renderer",
-        status: "pending",
+        status: "done",
         size: "L",
+        history: [{ when: "2026-06-06", note: "shipped — Canvas 2D pseudo-3D with painter-sorted cuboids, hand-rolled projection (no Three.js), orbit drag + wheel/pinch zoom + tap-select. 2D|3D toggle in editor + battle schematics. Per-robot view preference persisted." }],
         summary: "Interactive 3D schematic — opt-in toggle alongside the existing 2D.",
         acceptance: [
           "Schematic block in the robot editor gains a 2D/3D toggle chip.",

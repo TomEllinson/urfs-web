@@ -418,6 +418,31 @@
     pointer-events: none;
   }
 
+  /* ── 3D schematic ───────────────────────────────────────────────── */
+  .schem-toggle-row {
+    display: flex; justify-content: flex-end; align-items: center;
+    gap: 4px; margin-bottom: 4px;
+  }
+  .schem-toggle-chip {
+    padding: 2px 9px; font-size: 11px; font-weight: 700;
+    border-radius: 10px; border: 1px solid var(--surface-3);
+    background: var(--surface-2); color: var(--on-surface-muted);
+    cursor: pointer; user-select: none;
+  }
+  .schem-toggle-chip.active {
+    background: rgba(77,208,225,0.12); border-color: var(--cyan);
+    color: var(--cyan);
+  }
+  .schem3d-wrap {
+    position: relative; overflow: hidden;
+    border: 1px solid var(--surface-3);
+    border-radius: var(--bevel);
+    background: rgba(0,0,0,0.30);
+    margin: 8px 0;
+    touch-action: none;
+  }
+  .schem3d-wrap canvas { display: block; width: 100%; }
+
   /* ── Toast ──────────────────────────────────────────────────────── */
   .toast {
     position: fixed; left: 50%; transform: translateX(-50%);
@@ -1200,6 +1225,9 @@ function render() {
     });
   }
 
+  // Mount 3D canvases after DOM is populated (no rAF needed — layout is sync).
+  if (typeof mountAll3D === "function") mountAll3D();
+
 }
 
 // Placeholder for screens — implemented further down in this file.
@@ -1682,7 +1710,7 @@ let renderRobotEditor = function (id) {
     </div>
 
     <div class="label-small label-cyan">SCHEMATIC</div>
-    ${renderSchematic(robotToSchemNodes(r), { tapAct: "edit-component-from-schem", rid: r.id })}
+    ${renderSchematicWithToggle(robotToSchemNodes(r), { tapAct: "edit-component-from-schem", rid: r.id }, r, false)}
 
     <div class="label-small label-cyan">COMPONENTS</div>
     ${r.components.map((c, idx) => `
@@ -3310,7 +3338,7 @@ function renderComponentMap(r) {
           <button class="btn ghost" style="padding:4px 8px" data-act="reset-armor" data-id="${r.robotId}">RESET ARMOR</button>
         </div>
       </div>
-      ${renderSchematic(battleRobotToSchemNodes(r), { tapAct: "open-comp-from-schem", rid: r.robotId })}
+      ${renderSchematicWithToggle(battleRobotToSchemNodes(r), { tapAct: "open-comp-from-schem", rid: r.robotId }, r, true)}
       <div style="display:none"><div class="row">
       <!-- legacy fallback tiles preserved for reference; the schematic
            above replaces them. -->
@@ -5448,6 +5476,411 @@ handlers["edit-component-from-schem"] = ({ rid, id }) => {
 handlers["open-comp-from-schem"] = ({ rid, id }) => {
   pushModal("comp-sheet", { id: Number(rid), cid: Number(id) });
 };
+handlers["toggle-schem3d"] = ({ rid }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  if (r) { r._schematic3D = !r._schematic3D; dbPut("robots", r); render(); }
+};
+handlers["toggle-schem3d-battle"] = ({ rid }) => {
+  const r = findBattleRobot(state.activeBattle, Number(rid));
+  if (r) { r._schematic3D = !r._schematic3D; dbPut("battles", state.activeBattle); render(); }
+};
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+// 3D SCHEMATIC RENDERER
+// Hand-rolled orthographic projection, painter's-algorithm depth sort,
+// PointerEvent orbit + pinch, wheel zoom, tap-to-select.
+// No external dependencies.
+// ════════════════════════════════════════════════════════════════════
+
+// World-space box size per definition (x-width, y-height, z-depth).
+const DEF_SIZE = {
+  CORE:    [52, 52, 52],
+  HEAD:    [36, 36, 28],
+  ARM:     [28, 44, 22],
+  LEG:     [32, 50, 28],
+  UTILITY: [30, 30, 22],
+};
+const DEF_DEFAULT = [32, 36, 24];
+
+// Face colours per definition (base, light-face, dark-face multiplier).
+const DEF_COLOR = {
+  CORE:    "#4dd0e1",
+  HEAD:    "#ef5350",
+  ARM:     "#4ece71",
+  LEG:     "#ffb347",
+  UTILITY: "#8da0b6",
+};
+const GAP3D = 10;
+
+// Facing → world direction vector.
+function facing3D(f) {
+  switch (f) {
+    case "FRONT":  return [ 0, 0,  1];
+    case "BACK":   return [ 0, 0, -1];
+    case "LEFT":   return [-1, 0,  0];
+    case "RIGHT":  return [ 1, 0,  0];
+    case "TOP":    return [ 0, 1,  0];
+    case "BOTTOM": return [ 0,-1,  0];
+    default:       return [ 0, 0,  1];
+  }
+}
+
+// Build {id → {pos:[x,y,z], size:[w,h,d]}} world layout from component list.
+function build3DLayout(components) {
+  const byId = new Map(components.map(c => [c._id, c]));
+  const byParent = new Map();
+  for (const c of components) {
+    const p = c._parentId;
+    if (!byParent.has(p)) byParent.set(p, []);
+    byParent.get(p).push(c);
+  }
+  const core = components.find(c => c.definition === "CORE") || components[0];
+  if (!core) return new Map();
+
+  const placed = new Map();
+  placed.set(core._id, { pos: [0, 0, 0], size: (DEF_SIZE[core.definition] || DEF_DEFAULT).slice() });
+
+  const queue = [core._id];
+  while (queue.length) {
+    const pid = queue.shift();
+    const pp = placed.get(pid);
+    if (!pp) continue;
+    const children = byParent.get(pid) || [];
+    // Group by facing so we can spread siblings perpendicular.
+    const byFacing = new Map();
+    for (const ch of children) {
+      const f = ch.facing || "FRONT";
+      if (!byFacing.has(f)) byFacing.set(f, []);
+      byFacing.get(f).push(ch);
+    }
+    for (const [facing, siblings] of byFacing) {
+      const dir = facing3D(facing);
+      const sz = DEF_SIZE[byId.get(pid)?.definition] || DEF_DEFAULT;
+      // perpendicular spread axis: if dir is along Z, spread along X; if X, spread along Z; if Y, spread along X.
+      let perpAxis = 0;
+      if (Math.abs(dir[2]) > 0.5) perpAxis = 0; // spread X
+      else if (Math.abs(dir[0]) > 0.5) perpAxis = 2; // spread Z
+      else perpAxis = 0;
+      const n = siblings.length;
+      const halfSpread = (n - 1) / 2;
+      siblings.forEach((ch, i) => {
+        const cSz = (DEF_SIZE[ch.definition] || DEF_DEFAULT).slice();
+        const parentHalf = sz[dir[0] !== 0 ? 0 : dir[1] !== 0 ? 1 : 2] / 2;
+        const childHalf  = cSz[dir[0] !== 0 ? 0 : dir[1] !== 0 ? 1 : 2] / 2;
+        const offset = (i - halfSpread) * (cSz[perpAxis] + GAP3D);
+        const pos = [
+          pp.pos[0] + dir[0] * (parentHalf + childHalf + GAP3D) + (perpAxis === 0 ? offset : 0),
+          pp.pos[1] + dir[1] * (parentHalf + childHalf + GAP3D),
+          pp.pos[2] + dir[2] * (parentHalf + childHalf + GAP3D) + (perpAxis === 2 ? offset : 0),
+        ];
+        placed.set(ch._id, { pos, size: cSz });
+        queue.push(ch._id);
+      });
+    }
+  }
+  return placed;
+}
+
+// Project a 3D point to canvas 2D, given camera angles and scale.
+function project(x, y, z, rotY, rotX, scale, cx, cy) {
+  // Yaw
+  const cy_ = Math.cos(rotY), sy_ = Math.sin(rotY);
+  const x1 = x * cy_ - z * sy_;
+  const z1 = x * sy_ + z * cy_;
+  // Pitch
+  const cx_ = Math.cos(rotX), sx_ = Math.sin(rotX);
+  const y2 = y * cx_ - z1 * sx_;
+  // Orthographic project (flip y for canvas)
+  return [cx + x1 * scale, cy - y2 * scale];
+}
+
+// Lighten/darken a hex colour by a ratio.
+function tintColor(hex, ratio) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const t = v => Math.min(255, Math.max(0, Math.round(v * ratio)));
+  return `rgb(${t(r)},${t(g)},${t(b)})`;
+}
+
+// Draw a single cuboid face (convex polygon) on ctx.
+function drawFace(ctx, pts, fill, strokeW) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = strokeW;
+  ctx.stroke();
+}
+
+// Draw a single component as a depth-sorted cuboid.
+function drawBox(ctx, corners2d, baseColor, selected, dead, hpRatio) {
+  // corners2d: array of 8 projected points [tlf, trf, brf, blf, tlb, trb, brb, blb]
+  // (front face = 0-3, back face = 4-7)
+  // For painter's algorithm we just draw 3 visible faces: top, right, front
+  // (visible depends on camera angle; we always draw all 3, painter's algo handles order).
+  const alpha = dead ? 0.35 : 1;
+  const base = dead ? "#555" : (hpRatio < 0.33 ? "#ef5350" : hpRatio < 0.66 ? "#ffb347" : baseColor);
+  const light  = tintColor(base, 1.35);
+  const mid    = tintColor(base, 0.85);
+  const dark   = tintColor(base, 0.55);
+
+  const sw = selected ? 2.5 : 1;
+  ctx.globalAlpha = alpha;
+
+  // Bottom face (y-down)
+  drawFace(ctx, [corners2d[3], corners2d[2], corners2d[6], corners2d[7]], dark, sw);
+  // Back face
+  drawFace(ctx, [corners2d[4], corners2d[5], corners2d[6], corners2d[7]], dark, sw);
+  // Left face
+  drawFace(ctx, [corners2d[0], corners2d[4], corners2d[7], corners2d[3]], mid, sw);
+  // Right face
+  drawFace(ctx, [corners2d[1], corners2d[5], corners2d[6], corners2d[2]], mid, sw);
+  // Front face
+  drawFace(ctx, [corners2d[0], corners2d[1], corners2d[2], corners2d[3]], light, sw);
+  // Top face
+  drawFace(ctx, [corners2d[0], corners2d[1], corners2d[5], corners2d[4]], light, sw);
+
+  if (selected) {
+    // Highlight rim on front + top
+    ctx.strokeStyle = "#4dd0e1";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(corners2d[0][0], corners2d[0][1]);
+    for (const p of [corners2d[1], corners2d[2], corners2d[3], corners2d[0], corners2d[4], corners2d[5], corners2d[1]]) ctx.lineTo(p[0], p[1]);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// Get 8 corners of a box centred at (px, py, pz) with half-extents hx,hy,hz.
+function boxCorners(px, py, pz, hx, hy, hz, rotY, rotX, scale, cx, cy) {
+  const verts = [
+    [-hx,  hy,  hz], [ hx,  hy,  hz], [ hx, -hy,  hz], [-hx, -hy,  hz],
+    [-hx,  hy, -hz], [ hx,  hy, -hz], [ hx, -hy, -hz], [-hx, -hy, -hz],
+  ];
+  return verts.map(([x, y, z]) => project(px+x, py+y, pz+z, rotY, rotX, scale, cx, cy));
+}
+
+// Full 3D draw pass.
+function draw3D(canvas, components, placed, cam, selectedId, tapAct, rid) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2;
+
+  // Build draw list with depth key = avg camera-space z.
+  const items = components.map(c => {
+    const p = placed.get(c._id);
+    if (!p) return null;
+    const [px, py, pz] = p.pos;
+    const cy_ = Math.cos(cam.rotY), sy_ = Math.sin(cam.rotY);
+    const cx_ = Math.cos(cam.rotX), sx_ = Math.sin(cam.rotX);
+    const z1 = px * sy_ + pz * cy_;
+    const depth = z1 * cx_;
+    return { c, p, depth };
+  }).filter(Boolean);
+
+  // Back-to-front (painter's).
+  items.sort((a, b) => a.depth - b.depth);
+
+  // Store projected centers for hit-test.
+  canvas._centers = [];
+  for (const { c, p } of items) {
+    const [px, py, pz] = p.pos;
+    const [sw, sh, sd] = p.size;
+    const corners = boxCorners(px, py, pz, sw/2, sh/2, sd/2, cam.rotY, cam.rotX, cam.scale, cx, cy);
+    const base = DEF_COLOR[c.definition] || "#8da0b6";
+    drawBox(ctx, corners, base, c._id === selectedId, !!c._destroyed, c._hpRatio ?? 1);
+
+    // Label
+    const [sx, sy] = project(px, py, pz, cam.rotY, cam.rotX, cam.scale, cx, cy);
+    ctx.globalAlpha = 0.9;
+    ctx.font = "bold 9px ui-monospace,monospace";
+    ctx.fillStyle = "#d6e3f0";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText((c.name || c.definition || "?").slice(0, 8), sx, sy);
+    ctx.globalAlpha = 1;
+
+    canvas._centers.push({ id: c._id, sx, sy, tapAct, rid });
+  }
+}
+
+// Attach pointer/wheel/pinch interaction to a canvas3d element.
+// cam is a mutable camera object shared per canvas.
+function attach3DInteraction(canvas, components, placed, cam, getSelectedId, setSelectedId, redraw) {
+  let ptrState = null;
+  let lastPinchDist = null;
+
+  canvas.addEventListener("pointerdown", e => {
+    canvas.setPointerCapture(e.pointerId);
+    ptrState = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
+  });
+
+  canvas.addEventListener("pointermove", e => {
+    if (!ptrState || ptrState.id !== e.pointerId) return;
+    const dx = e.clientX - ptrState.x;
+    const dy = e.clientY - ptrState.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) ptrState.moved = true;
+    cam.rotY += dx * 0.008;
+    cam.rotX = Math.max(-1.3, Math.min(1.3, cam.rotX + dy * 0.008));
+    ptrState.x = e.clientX; ptrState.y = e.clientY;
+    redraw();
+  });
+
+  canvas.addEventListener("pointerup", e => {
+    if (!ptrState || ptrState.id !== e.pointerId) return;
+    if (!ptrState.moved && canvas._centers) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const my = (e.clientY - rect.top)  * (canvas.height / rect.height);
+      let best = null, bestD = 30 * 30;
+      for (const item of canvas._centers) {
+        const d = (item.sx - mx) ** 2 + (item.sy - my) ** 2;
+        if (d < bestD) { bestD = d; best = item; }
+      }
+      if (best) setSelectedId(best.id, best.tapAct, best.rid);
+    }
+    ptrState = null;
+  });
+
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    cam.scale = Math.max(0.3, Math.min(3.0, cam.scale * (e.deltaY > 0 ? 0.92 : 1.09)));
+    redraw();
+  }, { passive: false });
+
+  // Pinch via two simultaneous pointers.
+  const touches = new Map();
+  canvas.addEventListener("pointerdown", e => { touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); });
+  canvas.addEventListener("pointermove", e => {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) {
+      const [a, b] = [...touches.values()];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      if (lastPinchDist !== null) {
+        const ratio = dist / lastPinchDist;
+        cam.scale = Math.max(0.3, Math.min(3.0, cam.scale * ratio));
+        redraw();
+      }
+      lastPinchDist = dist;
+    } else {
+      lastPinchDist = null;
+    }
+  });
+  canvas.addEventListener("pointerup",   e => { touches.delete(e.pointerId); if (touches.size < 2) lastPinchDist = null; });
+  canvas.addEventListener("pointercancel", e => { touches.delete(e.pointerId); if (touches.size < 2) lastPinchDist = null; });
+}
+
+// Cameras keyed by robotId so orbit state survives re-renders within a session.
+const _cam3D = {};
+
+// Main entry: mount (or update) the 3D canvas inside `wrap`.
+// wrap is a .schem3d-wrap div with data-rid, data-tapact, data-battle.
+function mount3DSchematic(wrap) {
+  const rid = wrap.dataset.rid;
+  const tapAct = wrap.dataset.tapact;
+  const isBattle = wrap.dataset.battle === "1";
+
+  const robot = isBattle
+    ? findBattleRobot(state.activeBattle, Number(rid))
+    : state.robots.find(r => r.id === Number(rid));
+  if (!robot) return;
+
+  const nodes = isBattle ? battleRobotToSchemNodes(robot) : robotToSchemNodes(robot);
+  const placed = build3DLayout(nodes);
+
+  // Measure wrap to size canvas.
+  const W = Math.max(wrap.clientWidth || 320, 200);
+  const H = Math.min(W * 0.65, 380);
+
+  let canvas = wrap.querySelector("canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    wrap.appendChild(canvas);
+  }
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + "px";
+  canvas.style.height = H + "px";
+  wrap.style.height   = H + "px";
+
+  if (!_cam3D[rid]) {
+    _cam3D[rid] = { rotY: 0.52, rotX: 0.44, scale: (W / 420) * 1.1 };
+  }
+  const cam = _cam3D[rid];
+
+  // Scale canvas coords (dpr).
+  const dctx = canvas.getContext("2d");
+  dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  let selectedId = wrap._selectedId || null;
+
+  function redraw() {
+    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw3D(canvas, nodes, placed, cam, selectedId, tapAct, rid);
+  }
+
+  function setSelectedId(id, act, r) {
+    selectedId = id;
+    wrap._selectedId = id;
+    redraw();
+    // Show ⚙ by re-dispatching the normal handler.
+    if (act && act !== "noop") {
+      const h = handlers[act];
+      if (h) h({ rid: r, id });
+    }
+  }
+
+  // Avoid double-binding events.
+  if (!canvas._3dBound) {
+    canvas._3dBound = true;
+    attach3DInteraction(canvas, nodes, placed, cam, () => selectedId, setSelectedId, redraw);
+  }
+
+  redraw();
+}
+
+// Called by render() after DOM insertion to hook up all 3D wraps.
+function mountAll3D() {
+  document.querySelectorAll(".schem3d-wrap").forEach(wrap => mount3DSchematic(wrap));
+}
+
+// Wrap renderSchematic to optionally return 3D scaffold instead of 2D HTML.
+// Returns HTML string (3D mode returns a canvas placeholder + toggle; JS mounts after insertion).
+const _canvas3DSupported = (() => {
+  try { return !!document.createElement("canvas").getContext("2d"); } catch { return false; }
+})();
+
+function renderSchematicWithToggle(components, opts, robot, isBattle) {
+  const r = robot;
+  const is3D = _canvas3DSupported && !!(r && r._schematic3D);
+  const rid = opts.rid || "";
+  const toggleAct = isBattle ? "toggle-schem3d-battle" : "toggle-schem3d";
+
+  const toggle = _canvas3DSupported ? `
+    <div class="schem-toggle-row">
+      <span class="schem-toggle-chip ${!is3D ? 'active' : ''}" data-act="${toggleAct}" data-rid="${rid}">2D</span>
+      <span class="schem-toggle-chip ${is3D ? 'active' : ''}"  data-act="${toggleAct}" data-rid="${rid}">3D</span>
+    </div>
+  ` : "";
+
+  if (is3D) {
+    return `
+      ${toggle}
+      <div class="schem3d-wrap" data-rid="${rid}" data-tapact="${opts.tapAct || 'noop'}" data-battle="${isBattle ? 1 : 0}"></div>
+    `;
+  }
+  return toggle + renderSchematic(components, opts);
+}
 </script>
 
 <script>

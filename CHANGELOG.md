@@ -121,10 +121,42 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.1.0 — 2026-06-06 — Android parity sprint
+v0.1.0 — 2026-06-06 — Android parity sprint (full)
 
 ### Changelog
 
+- **v0.1.0+stage8** (2026-06-06): Stage 8 — out-of-scope items
+  pulled in at Tom's request and shipped same day. 8 more items:
+  - **Onboarding overlay** — first-run 3-step welcome (Garage →
+    Forces → Battle), '?' icon reopens.
+  - **Image portraits** — pilots + equipment get the same PICK
+    PHOTO + thumbnail pattern as robots. Shows on list cards,
+    cockpit pickers, comp-sheet rows. Emoji fallback.
+  - **Loadout sheet** — LOADOUT button on per-robot battle screen
+    opens an aggregated WEAPONS / GUARDS / UTILITY view across all
+    components.
+  - **Robot Compare** — Garage COMPARE button → 2-pick multi-select
+    → side-by-side 12-stat modal with green WIN chips (ties OK).
+  - **Rulebook screen** — full 752-line rulebook embedded; modal
+    has search, accordion sections, line numbers. (?) icons on the
+    action sheet's rule briefs deep-link to the cited line.
+  - **Action Log + per-step undo** — every battle mutation
+    (resolve-action, applyDamage, round-next, pass-priority) gets
+    snapshotted into a 50-entry FIFO stack. ACTION LOG modal lists
+    them newest-first with per-entry UNDO that restores the
+    snapshot and prunes everything newer.
+  - **Content Packs** — state.packs with urfs-core seed; MODULES /
+    TALENTS / KEYWORDS rebuild from active packs. Settings modal
+    (gear in Garage header) lists packs with ACTIVATE / DEACTIVATE
+    toggles + IMPORT PACK JSON. urfs-core is always on. Inactive-
+    pack content stays usable on existing robots but is hidden
+    from new pickers; affected robots get an amber chip on the
+    Garage card.
+  - **3D schematic** — Canvas 2D hand-rolled orthographic
+    projection (no Three.js, no external libs). Painter's-
+    algorithm depth sort, drag-orbit, wheel/pinch zoom, tap-to-
+    select. 2D|3D toggle on both editor and battle schematics.
+    Per-robot view preference persists.
 - **v0.1.0** (2026-06-06): **Android parity sprint complete.** 23
   spec items across 7 stages bring the webapp to playable feature
   parity with the Android v1.0.376 build for iOS testers. Spec
