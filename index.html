@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.39 (2026-06-06)
+  Version: 0.0.40 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -836,6 +836,7 @@ function buildBattleRobotState(robot, side) {
     cockpitPilots: [], // populated when force deploys with pilots
     actionBudget: { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 },
     gspdSpent: 0,
+    facingDegrees: 0,
   };
 }
 
@@ -2522,6 +2523,12 @@ function renderApplyDamage(rid, cid, amount, type) {
 // ════════════════════════════════════════════════════════════════════
 // ACTION RESOLVE MODAL + STRAIN DIALOGS + COMPONENT SHEET
 // ════════════════════════════════════════════════════════════════════
+handlers["set-pivot-rotation"] = ({ rot }) => {
+  const d = state.modal?.data;
+  if (!d) return;
+  d.rotateBy = Number(rot) || 0;
+  render();
+};
 handlers["set-charge-distance"] = ({ value }) => {
   const d = state.modal?.data;
   if (!d) return;
@@ -2631,6 +2638,25 @@ let renderActionResolve = function (rid, k) {
           }).join("")}
         </div>
         ${mentalCheckNeeded ? `<p class="label-small label-amber" style="margin-top:6px">⚠ ${sel.size} > Mental ${mental} → extra Mental check required</p>` : ""}
+      `;
+    })()}
+    ${(() => {
+      if (k !== "PIVOT") return "";
+      const current = r.facingDegrees ?? 0;
+      const flying = (r.altitude ?? 0) > 0;
+      const rot = state.modal?.data?.rotateBy ?? 0;
+      const result = ((current + rot) % 360 + 360) % 360;
+      const compass = ["N","NE","E","SE","S","SW","W","NW"][Math.round(result / 45) % 8];
+      return `
+        <div class="label-small label-cyan" style="margin-top:10px">PIVOT</div>
+        <p style="font-size:12px; color:var(--on-surface-muted)">Current facing: ${current}° (${["N","NE","E","SE","S","SW","W","NW"][Math.round(current/45) % 8]}). Rotate up to 90°${flying ? ", or 180° (flying off-vector)" : ""}.</p>
+        <div class="row-gap" style="margin-top:6px">
+          <button class="btn ${rot === -90 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="-90">−90° CCW</button>
+          <button class="btn ${rot === 0 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="0">0°</button>
+          <button class="btn ${rot === 90 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="90">+90° CW</button>
+          ${flying ? `<button class="btn ${rot === 180 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="180">180°</button>` : ""}
+        </div>
+        <p style="font-size:12px; color:var(--on-surface-muted); margin-top:4px">After: ${result}° (${compass}).</p>
       `;
     })()}
     ${(() => {
@@ -2874,7 +2900,20 @@ handlers["resolve-action"] = ({ id, k }) => {
       }
       showToast(`${a.label} — +1 SStrain${pilotStrainMsg}.`);
     } else {
-      showToast(`${a.label} — free incidental.`);
+      // Pivot: rotate facing by the chosen amount (mod 360).
+      if (k === "PIVOT") {
+        const rot = state.modal?.data?.rotateBy || 0;
+        if (rot !== 0) {
+          const before = r.facingDegrees ?? 0;
+          r.facingDegrees = ((before + rot) % 360 + 360) % 360;
+          const compass = ["N","NE","E","SE","S","SW","W","NW"][Math.round(r.facingDegrees / 45) % 8];
+          showToast(`Pivot — facing ${before}° → ${r.facingDegrees}° (${compass}).`);
+        } else {
+          showToast(`${a.label} — free incidental.`);
+        }
+      } else {
+        showToast(`${a.label} — free incidental.`);
+      }
     }
   } else {
     showToast(`${a.label} — manually resolved.`);

@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.39",
+    current_version: "0.0.40",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -470,8 +470,12 @@
       id: "positioning.pivot_facing",
       summary: "Pivot action: change robot.facing by up to 90° (180° if flying off-vector-lock). Persists on robot.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Pivot dialog → facing dropdown → save → battle state reflects new facing.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Add r.facingDegrees field (0-359 wrap, default 0). PIVOT ActionResolveDialog gets ±90° buttons + a 180° button (enabled only when r.altitude > 0 — flying off-vector). RESOLVE rotates the angle, mod 360." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.40. r.facingDegrees added to buildBattleRobotState (default 0). ActionResolveDialog gets a PIVOT section with current facing + compass label, ±90° / 0° / 180° buttons (180° hidden when r.altitude === 0 grounded), preview shows post-rotation facing. set-pivot-rotation handler stores rotateBy on state.modal.data + re-renders so the amber button highlight updates. RESOLVE applies (before + rot) mod 360 → r.facingDegrees and toasts the transition. Bug found in v0.0.39: I'd put the rotation logic inside the primary/reaction strain branch but PIVOT is INCIDENTAL — moved to the incidental fallthrough branch. 5 arms verified: 90+90=180 grounded; 90+180=270 flying; 270+90=0 (wrap); grounded button set has −90/0/+90 only; flying adds 180." },
+      ],
     },
     {
       id: "status.crouched_ranged_bonus",

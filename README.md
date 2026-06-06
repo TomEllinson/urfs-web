@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.39 — 2026-06-06
+v0.0.40 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.40** (2026-06-06): Pivot facing wired. New `facingDegrees`
+  field per battle robot. PIVOT action gets a rotation picker
+  (±90° / 0° / 180° when flying); on resolve the facing rotates
+  mod 360. 180° option is hidden when grounded.
 - **v0.0.39** (2026-06-06): GSPD tracking surfaces (stage 8 begins).
   Per-robot vitals GSPD cell now reads "remaining/total" and turns
   amber when fully spent. Move action gets a distance picker
