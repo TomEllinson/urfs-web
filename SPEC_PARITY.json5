@@ -32,7 +32,8 @@
       items: [
         {
           id: "build.parent_child_hierarchy",
-          status: "pending",
+          status: "done",
+          history: [{ when: "2026-06-06", note: "shipped — Parent picker in Add/Edit, descendant-cycle prevention, migration on load" }],
           size: "M",
           summary: "Components carry a parentTempId so the schematic builds a tree (Arm child of Core, Hand child of Arm, etc.). Editor surfaces a Parent picker.",
           acceptance: [

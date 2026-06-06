@@ -1460,6 +1460,12 @@ const COMP_DEFS = ["HEAD","ARM","LEG","UTILITY"];
 const FACINGS = ["FRONT","BACK","LEFT","RIGHT","TOP","BOTTOM"];
 
 let renderAddComponent = function (rid) {
+  const r = state.robots.find(x => x.id === rid);
+  const core = (r?.components || []).find(c => c.definition === "CORE");
+  const defaultParent = core ? core.tempId : "";
+  const parentOptions = (r?.components || []).map(c =>
+    `<option value="${c.tempId}" ${c.tempId === defaultParent ? "selected" : ""}>${escapeHtml(c.name || c.definition)}</option>`
+  ).join("");
   return `
     <h2>ADD COMPONENT</h2>
     <div class="field">
@@ -1485,6 +1491,12 @@ let renderAddComponent = function (rid) {
         <option value="false">Non-Frame (utility)</option>
       </select>
     </div>
+    <div class="field">
+      <label>PARENT</label>
+      <select id="ac-parent">
+        ${parentOptions}
+      </select>
+    </div>
     <div class="actions">
       <button class="btn ghost" data-act="modal-close">CANCEL</button>
       <button class="btn primary" data-act="confirm-add-component" data-rid="${rid}">ADD</button>
@@ -1498,9 +1510,11 @@ handlers["confirm-add-component"] = ({ rid }) => {
   const def = document.getElementById("ac-def").value;
   const facing = document.getElementById("ac-facing").value;
   const isFrame = document.getElementById("ac-frame").value === "true";
+  const parentTempId = Number(document.getElementById("ac-parent").value) || null;
   const tempId = Date.now() + Math.floor(Math.random() * 1000);
   r.components.push({
     tempId, definition: def, facing, name, isFrame,
+    parentTempId,
     modules: [], equipment: [],
   });
   saveRobot(r);
@@ -1516,6 +1530,31 @@ let renderEditComponent = function (rid, cid) {
     (m.definitionLimit.length === 0 || m.definitionLimit.includes(c.definition))
     && (m.maxPerComponent === -1 || !m.maxPerComponent || installedIds.filter(i => i === m.id).length < (m.maxPerComponent || 1))
   );
+  // Collect descendants of c so they cannot be chosen as parent (would create a cycle).
+  const descendantIds = new Set();
+  const queue = [c.tempId];
+  while (queue.length) {
+    const pid = queue.shift();
+    for (const comp of r.components) {
+      if (comp.parentTempId === pid && !descendantIds.has(comp.tempId)) {
+        descendantIds.add(comp.tempId);
+        queue.push(comp.tempId);
+      }
+    }
+  }
+  const eligibleParents = (r?.components || []).filter(comp =>
+    comp.tempId !== c.tempId && !descendantIds.has(comp.tempId)
+  );
+  const parentPickerHtml = c.definition === "CORE" ? "" : `
+    <div class="field">
+      <label>PARENT</label>
+      <select id="ec-parent">
+        ${eligibleParents.map(comp =>
+          `<option value="${comp.tempId}" ${comp.tempId === c.parentTempId ? "selected" : ""}>${escapeHtml(comp.name || comp.definition)}</option>`
+        ).join("")}
+      </select>
+    </div>
+  `;
   return `
     <h2>${escapeHtml(c.name)} // ${c.definition}</h2>
     <div class="field">
@@ -1535,6 +1574,7 @@ let renderEditComponent = function (rid, cid) {
         </select>
       </div>
     `}
+    ${parentPickerHtml}
     <div class="label-small label-cyan" style="margin-top:8px">MODULES (${(c.modules || []).length})</div>
     ${(c.modules || []).map((m, i) => {
       const def = MODULES_BY_ID[m.moduleId];
@@ -1560,6 +1600,8 @@ handlers["modal-close-component"] = ({ rid, cid }) => {
   if (c) {
     c.name = document.getElementById("ec-name")?.value || c.name;
     c.facing = document.getElementById("ec-facing")?.value || c.facing;
+    const parentEl = document.getElementById("ec-parent");
+    if (parentEl) c.parentTempId = Number(parentEl.value) || null;
     saveRobot(r);
   }
   pushModal("robot-editor", { id: Number(rid) });
@@ -4257,6 +4299,17 @@ async function init() {
   ]);
   state.robots = robots; state.pilots = pilots; state.equipment = equipment;
   state.forces = forces; state.battles = battles;
+  // Migrate robots built before parentTempId was tracked — attach all
+  // orphan components to Core so the schematic tree is valid.
+  for (const r of state.robots) {
+    const core = (r.components || []).find(c => c.definition === "CORE");
+    if (!core) continue;
+    for (const c of r.components) {
+      if (c.definition !== "CORE" && c.parentTempId == null) {
+        c.parentTempId = core.tempId;
+      }
+    }
+  }
   // Normalize legacy battles that predate two-forces schema.
   for (const b of battles) {
     b.p1Robots = b.p1Robots || [];
