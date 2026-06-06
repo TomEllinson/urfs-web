@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.35 — 2026-06-06
+v0.0.36 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.36** (2026-06-06): Capacitor pool end-to-end verified —
+  no code changes needed. SHIELD_RECOVERY spends 1 cap for +10
+  shields (clamped to max), STRAIN_CLEAR spends 1 cap for −1
+  strain, round advance ticks +1 capacitor clamped to
+  `capacitorsMax`. All paths working as specified.
 - **v0.0.35** (2026-06-06): Module toggle gates (stage 7 begins).
   Turning a module ON checks `fuelToActivate` against current fuel
   AND the post-activation power net stays ≥ 0; refuses with a

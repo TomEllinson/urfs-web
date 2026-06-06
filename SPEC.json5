@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.35",
+    current_version: "0.0.36",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -422,8 +422,12 @@
       id: "modules.capacitor_pool",
       summary: "Capacitor (CAP) pool: +1 per round, spendable by Shield Recovery (+10 SHLD), Strain Clear (-1 STR), etc.",
       depends_on: ["budget.end_of_round_refresh"],
-      status: "pending",
+      status: "done",
       acceptance: "Round advances → CAP +=1 (cap=max-of-capacitor-modules). Shield Recovery action spends 1.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Verification slice — round-advance +1 (clamped to capacitorsMax) shipped 0.0.15; SHIELD_RECOVERY −1 cap +10 shields shipped 0.0.6; STRAIN_CLEAR −1 cap −1 strain shipped 0.0.6. All paths exist; running end-to-end Playwright to confirm + close." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.36 (no code changes — pure verification). End-to-end Playwright with cap 2/4, shields 10/30, strain 2: SHIELD_RECOVERY → cap 1, shields 20 (+10 capped at max); STRAIN_CLEAR → cap 0, strain 1; 2nd SHIELD_RECOVERY refused with 'Can't recover shields (no cap or already full)' toast; PASS round advance → cap 0→1 (rulebook +1); 3 more PASS rounds → round 5, cap clamped at max 4 not 5. All paths working as specified." },
+      ],
     },
     {
       id: "equipment.hp_track",
