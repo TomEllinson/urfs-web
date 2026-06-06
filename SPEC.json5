@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.25",
+    current_version: "0.0.26",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -304,8 +304,12 @@
       id: "strain.heat_vent_reaction",
       summary: "Heat Vent: spend a Reaction, roll Mental check, on success remove 2 sysStrain. Wires through ActionResolveDialog.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Heat Vent → pilot picker → roll Mental → on hit, sysStrain -= 2 and reaction budget incremented.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. DECISION_LOG: rulebook L266 says 'Remove System Strain equal to hits', NOT a flat -2. Following rulebook over spec's '-2'. Bucket stays incidental per the catalog (rulebook says 'Can be a Reaction' — situational reaction-use ships when reaction-specific triggers exist). Mental check: roll pilot.mental d6 vs 5+ on RESOLVE." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.26. New HEAT_VENT branch in resolve-action: reads picked pilot's mental stat from state.pilots, rolls that many d6 via Math.random, counts hits ≥ 5. On hits ≥ 1: r.systemStrain -= hits (clamped to 0) + clears shutdownPending if it drops below threshold. Toast describes outcome (dice + hits + strain delta) with pilot name. MANUAL bypasses auto-roll. No-rolling-pilot fallback toasts to resolve at table. Bucket stays incidental → incidental budget increments per existing logic. 3 cases verified: [5,6,5]→3 hits→strain 5→2, pending cleared; [1,1,1]→0 hits→no change; MANUAL→no auto-roll. Closes stage 5 strain effects." },
+      ],
     },
   ],
 

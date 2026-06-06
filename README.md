@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.25 — 2026-06-06
+v0.0.26 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.26** (2026-06-06): Heat Vent Mental check auto-resolves on
+  RESOLVE. Picked pilot's mental d6 vs 5+; on hits ≥ 1, sysStrain
+  drops by hits and shutdownPending clears if it falls below
+  threshold. MANUAL bypasses the auto-roll. Closes stage 5 strain
+  effects.
 - **v0.0.25** (2026-06-06): Strain Clear now also clears the
   Shutdown Pending flag when sysStrain drops below threshold —
   closing the loop where you can use the incidental to escape the

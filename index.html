@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.25 (2026-06-06)
+  Version: 0.0.26 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2674,6 +2674,32 @@ handlers["resolve-action"] = ({ id, k }) => {
       showToast("Can't clear strain.");
       _pickedPilot = null;
       return;
+    }
+  } else if (k === "HEAT_VENT" && !isManual) {
+    // Rulebook L266: Mental check; remove System Strain = hits. Roll the
+    // picked pilot's mental d6 vs 5+. Auto-resolve on RESOLVE so the
+    // player sees the outcome inline; SKIP/MANUAL preserves at-table.
+    let mental = 0, pilotName = "pilot";
+    if (_pickedPilot && _pickedPilot !== "MANUAL") {
+      const cp = (r.cockpitPilots || []).find(c =>
+        `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
+      );
+      const pilot = cp ? (state.pilots || []).find(x => x.id === cp.pilotId) : null;
+      if (pilot) { mental = pilot.mental || 0; pilotName = pilot.name || "pilot"; }
+    }
+    if (mental <= 0) {
+      showToast("Heat Vent — no rolling pilot, resolve at table.");
+    } else {
+      const dice = [];
+      for (let i = 0; i < mental; i++) dice.push(1 + Math.floor(Math.random() * 6));
+      const hits = dice.filter(v => v >= 5).length;
+      if (hits > 0) {
+        r.systemStrain = Math.max(0, r.systemStrain - hits);
+        if (r.systemStrain < r.systemStrainThreshold) r.shutdownPending = false;
+        showToast(`Heat Vent (${pilotName}) — ${dice.join(",")} → ${hits} hits, −${hits} Strain.`);
+      } else {
+        showToast(`Heat Vent (${pilotName}) — ${dice.join(",")} → 0 hits, no relief.`);
+      }
     }
   } else if (!isManual) {
     if (a.bucket === "primary" || a.bucket === "reaction") {
