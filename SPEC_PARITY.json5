@@ -1,0 +1,411 @@
+// URFS webapp parity sprint spec — drives full Android parity port.
+// Target: finish Sun 2026-06-07. Driven by /subagent-driven-development:
+// implementer → spec compliance review → code quality review → commit.
+//
+// Source-of-truth references for every item:
+//   Android: /home/tom/software_projects/urfs/android/
+//   Original webapp (mine for portable JS): /home/tom/software_projects/urfs/webapp/current/urfs_tracker_webapp.html
+//   Current webapp: /home/tom/software_projects/urfs/webapp/index.html
+//
+// Stage numbering follows dependency order — earlier stages gate later ones.
+// Each item: id, summary, acceptance (machine-verifiable), depends_on,
+// rulebook_lines, android_refs, original_webapp_refs, current_gap_ref,
+// status (pending/in_progress/done/blocked), size (XS/S/M/L), notes.
+{
+  meta: {
+    spec_version: "parity-1",
+    created: "2026-06-06",
+    target_done: "2026-06-07",
+    driving_workflow: "/subagent-driven-development",
+    base_version: "0.0.46",
+    target_version: "0.1.0", // bump to 0.1.x when parity sprint lands
+  },
+
+  stages: [
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 1 — Build foundations. Module + equipment validation.
+    // Without these, the build is misleading. Highest priority.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage1_build_foundations",
+      summary: "Module + equipment install validation matches Android.",
+      items: [
+        {
+          id: "build.parent_child_hierarchy",
+          status: "pending",
+          size: "M",
+          summary: "Components carry a parentTempId so the schematic builds a tree (Arm child of Core, Hand child of Arm, etc.). Editor surfaces a Parent picker.",
+          acceptance: [
+            "Each non-Core component has a `parentTempId` field (defaults to Core's tempId on add).",
+            "Add/Edit component modal shows a PARENT dropdown listing all eligible parents (anything other than self + descendants).",
+            "Schematic uses parentTempId to lay out the tree, not always-Core.",
+            "Existing robots auto-migrate: any component without parentTempId gets Core as parent on load.",
+          ],
+          android_refs: ["domain/Component.kt parentLocalId", "ui/garage/builder/steps/SchematicStep.kt"],
+          original_webapp_refs: ["webapp/current line 5518-5828 generateStaticSchematic uses comp.parentTempId"],
+          rulebook_lines: ["L82-99 schematic hierarchy"],
+          current_gap_ref: "index.html:4026-4038 robotToSchemNodes hardcodes Core parent",
+        },
+        {
+          id: "build.module_slot_caps",
+          status: "pending",
+          size: "S",
+          summary: "Per-component module slot caps: Core/Utility 8, Head 6, Arm/Leg 4. Enforce in add-module + module-picker.",
+          acceptance: [
+            "Constant MODULE_SLOT_CAPS = { CORE: 8, UTILITY: 8, HEAD: 6, ARM: 4, LEG: 4 } at top of MODULES section.",
+            "Module picker `+ ADD MODULE` button disabled with toast 'Component slots full (n/cap)' when at cap.",
+            "Component editor header shows `modules n/cap`.",
+          ],
+          original_webapp_refs: ["webapp/current line 3252-3384 addModuleToComp slot cap logic"],
+          rulebook_lines: ["L107-118 module slot table"],
+          current_gap_ref: "index.html:1591-1599 module picker has no slot cap check",
+        },
+        {
+          id: "build.requires_chain",
+          status: "pending",
+          size: "S",
+          summary: "Module `requires` chain enforced at install. Picker greys out modules whose deps aren't met on the same component or anywhere on the robot per the spec field.",
+          acceptance: [
+            "Each module's `requires` array names module ids; install button is disabled in picker if no required module already installed on the same component.",
+            "Picker shows a red 'Requires: X / Y' chip on the disabled card.",
+            "Removing a required module surfaces a confirm: 'This will disable n dependent module(s). Continue?'",
+          ],
+          original_webapp_refs: ["webapp/current line 2994-3078 filterAvailableModules dependency gate"],
+          current_gap_ref: "index.html:1591-1599 requires field is unused",
+        },
+        {
+          id: "build.max_copies",
+          status: "pending",
+          size: "XS",
+          summary: "Per-component `maxCopies` cap respected. Picker filters out a module if installed copies already at cap.",
+          acceptance: [
+            "Picker excludes a module whose current per-component instance count >= maxCopies (when maxCopies > 0).",
+            "maxCopies: -1 means unlimited (current behavior).",
+          ],
+          current_gap_ref: "index.html:1583-1590 only maxPerComponent==1 enforced (typo / wrong field)",
+        },
+        {
+          id: "build.equipment_on_component",
+          status: "pending",
+          size: "L",
+          summary: "Equipment from the library can be attached to a robot component. Component editor gains an EQUIPMENT section + picker that respects socket-type validation.",
+          acceptance: [
+            "renderEditComponent shows an EQUIPMENT section under MODULES with: '+ ADD EQUIPMENT'.",
+            "Picker filters equipment library by socket-type validation (see build.equipment_socket_validation).",
+            "Attached equipment appears in c.equipment[] with { equipmentId, socketModuleId } refs.",
+            "Robot Garage card BP now reflects attached equipment's BP contribution.",
+            "Deploy-to-battle path copies attached equipment into BattleEquipmentState (mirroring the existing snapshot model).",
+          ],
+          depends_on: ["build.equipment_socket_validation"],
+          android_refs: ["ui/garage/builder/steps/EquipmentAssignStep.kt"],
+          original_webapp_refs: ["webapp/current line 7126-7247 generateEquipmentCard; line 6680-6762 getAvailableSocketsForEquipment"],
+          current_gap_ref: "index.html:1510-1556 renderEditComponent has no equipment section",
+        },
+        {
+          id: "build.equipment_socket_validation",
+          status: "pending",
+          size: "M",
+          summary: "Equipment can only be socketed where the rules allow. Socket types: MANIPULATOR, HOLSTER, INTERNAL, EXTERNAL, TETHER. Rules: Mount Point + INTERNAL/EXTERNAL; non-Mount + MANIPULATOR/HOLSTER (or w/ Extending Grip); Tethered + TETHER; Sil(equipment) ≤ Sil(robot).",
+          acceptance: [
+            "validateEquipmentInSocket(eq, socketType) returns { valid, error } per Android KeywordValidator.kt:44-48.",
+            "Equipment picker (build.equipment_on_component) shows compatible items first, incompatible items dimmed with the reject reason.",
+            "Tethered Sockets only accept equipment with Tethered keyword.",
+            "Equipment Sil > Robot Sil = hard reject with 'Equipment too large'.",
+          ],
+          android_refs: ["domain/KeywordValidator.kt"],
+          original_webapp_refs: ["webapp/current line 6608-6670 validateReequipMove"],
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 2 — Robot wizard polish + live HUD + pre-save validation.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage2_wizard_hud",
+      summary: "Build HUD + validate-robot gate.",
+      items: [
+        {
+          id: "wizard.build_hud",
+          status: "pending",
+          size: "M",
+          summary: "Live build HUD on robot editor: BP, weight (/maxLoad), power, fuel, shields, capacitors, strain threshold, GSPD, boost. Mirrors Android BuildHud.kt.",
+          acceptance: [
+            "Sticky bar above the COMPONENTS list shows all 9 stats with color-coded weight + power (red if over / negative).",
+            "Updates in real time as components/modules/equipment change.",
+            "Tap a stat to peek a tooltip explaining the formula.",
+          ],
+          android_refs: ["ui/garage/builder/BuildHud.kt"],
+          original_webapp_refs: ["webapp/current line 4398-4482 calcRobotBP + live stats panel"],
+        },
+        {
+          id: "wizard.validate_robot_gate",
+          status: "pending",
+          size: "S",
+          summary: "Pre-save validator: power generation present, weight ≤ maxLoad, ground capability (legs or wheels), all Multi-Toggle slots assigned. Returns issues list.",
+          acceptance: [
+            "validateRobot(r) returns { isValid, issues: string[] } matching webapp/current line 4484-4559.",
+            "DONE button on robot editor shows a red warning chip with issue count if invalid.",
+            "Tapping the warning chip opens a modal listing all issues.",
+            "Save still allowed (soft warning) but the robot is flagged in Garage list with a red dot.",
+          ],
+          original_webapp_refs: ["webapp/current line 4484-4559 validateRobot"],
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 3 — Pilot system parity.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage3_pilots",
+      summary: "Rank tiers, stat budget, talent slots, talent dice catalog.",
+      items: [
+        {
+          id: "pilot.rank_stat_talent_budget",
+          status: "pending",
+          size: "M",
+          summary: "Pilot editor enforces rank-based stat budget (R 10 / E 13 / V 16) and talent slot budget (R 2 / E 4 / V 6). AI pilots: no talents, BP = 3×(PHY+MEN+TRN).",
+          acceptance: [
+            "Rank picker switches budget pools and refreshes remaining-points display.",
+            "Stat ± buttons disabled when at min (1) or budget exhausted.",
+            "Talent chips disabled when slot budget exhausted; non-met stat requirements dim the chip with a tooltip.",
+            "BP readout updates live: human = rank.cost + Σtalent.cost; AI = 3 × stat sum.",
+            "Tank talent flips HP formula from 2×PHY to 3×PHY in the live HP preview.",
+          ],
+          android_refs: ["ui/pilots/PilotBuilderViewModel.kt"],
+          original_webapp_refs: ["webapp/current line 8480-8587 calcPilotStats + savePilotFinal"],
+        },
+        {
+          id: "pilot.full_talent_dice_catalog",
+          status: "pending",
+          size: "M",
+          summary: "Wire all 11 dice-bonus + threshold talents into the dice roller chips and battle handlers — not just Sharpshooter/Deadeye/Brawler.",
+          acceptance: [
+            "rollerComputeChips covers: Sharpshooter, Deadeye, Brawler, Coordinated, Shield Rider, Fast Fingers, Quick Troubleshooter, Tank, Neural Link, Quick Troublemaker, Martial Artist.",
+            "Battle-time effects: Tank +1 mental dedicated to strain reduction; Coordinated +1 die when in same robot as another Coordinated pilot; Shield Rider +2 Pilot Strain Threshold while Shields > 0; Fast Fingers +1 free Toggle Incidental per round; Quick Troubleshooter optionally chooses which module shuts down; Neural Link Fortitude prompt on Frame destruction.",
+            "Martial Artist enables unarmed Melee = 1d6 + ½ Strength + Parry without melee weapon.",
+          ],
+          android_refs: ["domain/talents/", "ui/battle/SchematicBattleViewModel.kt talent variant handlers"],
+          original_webapp_refs: ["webapp/current line 11799-11829 getTalentDicePoolBonus"],
+        },
+        {
+          id: "pilot.battle_talent_variants",
+          status: "pending",
+          size: "M",
+          summary: "Wire the action-driven Android talent variants — Cool Head, Override, Overclock, Berserker, Combat Instinct, Coolant Manager, Commander — into the action / strain / shutdown handlers. Required by Tom for full play.",
+          acceptance: [
+            "Cool Head: action-sheet entry under Incidentals; removes 1 token from any conscious pilot in the cockpit. Guarded by tokens > 0.",
+            "Override: shutdown-reboot dialog gains 'OVERRIDE' button — rolls excess strain tokens as bonus dice; on success applies +1 HP damage to the acting pilot.",
+            "Overclock: shutdown-reboot dialog gains 'OVERCLOCK' button — rolls 2× Mental dice; +2 HP damage to acting pilot; once-per-battle flag (r.overclockUsed) blocks re-fire.",
+            "Berserker / Combat Instinct: dice roller gets a threshold-aware chip (+N dice when strain > floor(threshold/2) for Berserker, when pilotHP < ½ max for Combat Instinct).",
+            "Coolant Manager: action sheet gets a 'COOLANT VENT' free-Incidental — Mental d6 vs 5+, removes 2× hits in strain (vs Heat Vent's 1×).",
+            "Commander: passive — highest-Mental conscious Commander on a force grants +1 Strain Threshold to all friendly pilots; reflected in calcStrainThreshold reads at battle time.",
+          ],
+          android_refs: ["ui/battle/SchematicBattleViewModel.kt:357-590 talent variant actions"],
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 4 — Force system parity.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage4_forces",
+      summary: "BP cap, pilot BP, drag-reorder, pilot override.",
+      items: [
+        {
+          id: "force.bp_cap_and_pilot_bp",
+          status: "pending",
+          size: "M",
+          summary: "Force editor totals = Σ robot BP + Σ pilot BP, compared against bpCap. Pilot BP from cockpit assignments included. Over-cap = red warning chip + DEPLOY guard.",
+          acceptance: [
+            "depBP(robot) returns base BP + assigned pilot BP across all cockpits.",
+            "Force editor shows 'X / Y BP' progress bar; over-cap turns red.",
+            "DEPLOY shows a confirm dialog if over-cap with 'Continue anyway?'.",
+            "Pilot picker per-cockpit shows pilot BP next to name.",
+          ],
+          current_gap_ref: "index.html:1130-1134 depBP stub",
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 5 — Battle correctness fixes.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage5_battle_correctness",
+      summary: "Damage pipeline + action correctness.",
+      items: [
+        {
+          id: "battle.shields_intercept",
+          status: "pending",
+          size: "S",
+          summary: "Damage hits shieldsCurrent before armor. Capacitor SHIELD_RECOVERY refills correctly.",
+          acceptance: [
+            "applyDamage subtracts from shieldsCurrent first (clamped to amount).",
+            "Damage type matters: Energy bypasses shields only if Penetrating keyword is set.",
+            "If shields > 0 absorbs full hit → no armor / frame save.",
+          ],
+          android_refs: ["ui/battle/SchematicBattleViewModel.kt:1919-2184 applyDamage"],
+          current_gap_ref: "index.html:2473-2499 applyDamage skips shields",
+        },
+        {
+          id: "battle.damage_type_immunity",
+          status: "pending",
+          size: "M",
+          summary: "Damage type → immunity + Energy-Reflective Coating + Armor Coating Energy absorption.",
+          acceptance: [
+            "Energy damage to a component with armor_coating + full armor = absorbed entirely.",
+            "Energy damage to a Guard equipment with Energy-Reflective Coating at full armor = reflected.",
+            "Melee Physical hits absorbed by Melee equipment's Physical immunity (Guard semantic).",
+            "Penetrating bypassArmor reduces effectiveArmor for the hit; if bypass > remaining armor → 'overwhelmed' instant destroy on non-frame.",
+          ],
+          android_refs: ["ui/battle/SchematicBattleViewModel.kt damage pipeline"],
+        },
+        {
+          id: "battle.salvo_strain_per_target",
+          status: "pending",
+          size: "XS",
+          summary: "SALVO applies +1 pilot strain per target, and Mental check on overflow subtracts the diff from each attack's dice pool.",
+          acceptance: [
+            "actionPilotStrainCost('SALVO') replaced with target-count-aware cost.",
+            "If targets > pilot.mental, the dice roller opens with poolBase reduced by (targets - mental) per attack and a 'Salvo Overflow −n' chip pre-applied.",
+          ],
+          rulebook_lines: ["L223 Salvo strain cost"],
+          current_gap_ref: "index.html:2964-2966 + 3121-3124",
+        },
+        {
+          id: "battle.frame_save_on_manual_bump",
+          status: "pending",
+          size: "XS",
+          summary: "Manually decrementing armor to 0 routes through Frame Save instead of bypassing it.",
+          acceptance: [
+            "bump-comp-hp at 0 calls applyDamage(component, 1, 'Manual') instead of c.isDestroyed = true direct set.",
+            "Frame Save dialog opens normally.",
+          ],
+          current_gap_ref: "index.html:3703-3710",
+        },
+        {
+          id: "battle.pass_action_via_state_machine",
+          status: "pending",
+          size: "XS",
+          summary: "PASS action in action sheet goes through the same pass-priority handler that nav-bar PASS uses. No raw priority flip.",
+          acceptance: [
+            "resolve-action PASS calls handlers['pass-priority']({ side }) instead of inline flip.",
+            "Two-sided rounds advance correctly on double-pass; pilot strain clears only on passing side.",
+          ],
+          current_gap_ref: "index.html:3015-3019",
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 6 — Flight + movement systems.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage6_flight_movement",
+      summary: "Inertia, altitude, boost, decelerate.",
+      items: [
+        {
+          id: "battle.inertia_altitude_tracking",
+          status: "pending",
+          size: "M",
+          summary: "Track r.inertia + r.altitude. BOOST/STRAFE/CHARGE bump inertia per rulebook. Altitude > 0 auto-sets FLYING. Hover Floor enforces altitude minimum.",
+          acceptance: [
+            "BOOST resolve sets r.inertia += distance silhouettes; r.altitude += verticalComponent.",
+            "DECELERATE resolve: −1 fuel per inertia point reduced; clamped at 0.",
+            "If altitude > 0 → statusEffects includes FLYING; if landed → cleared.",
+            "Hover System minimum altitude floor enforced (can't drop below floor while module is on).",
+          ],
+          rulebook_lines: ["L260-285 flight"],
+          android_refs: ["ui/battle/SchematicBattleViewModel.kt boost / decelerate / bumpInertia / bumpAltitude"],
+          original_webapp_refs: ["webapp/current line 4743-4918 calculateBoostPower + executeBoost"],
+          current_gap_ref: "index.html:966 (initialized but never modified)",
+        },
+        {
+          id: "battle.boost_action_resolved",
+          status: "pending",
+          size: "M",
+          summary: "BOOST action: distance picker, fuel cost formula = ceil(weight/boostPower) × distance, inertia + altitude update, fuel decrement.",
+          acceptance: [
+            "BOOST opens distance picker (max = remainingFuel ÷ unitCost).",
+            "On resolve: r.fuelCurrent -= unitCost × distance; r.inertia += distance; r.altitude updated if vertical.",
+            "Result toast: 'Boost N → fuel −X, inertia +Y, altitude +Z'.",
+          ],
+          depends_on: ["battle.inertia_altitude_tracking"],
+          original_webapp_refs: ["webapp/current line 4807-4918 executeBoost"],
+          current_gap_ref: "index.html:2982-2983 actionRollKind returns null",
+        },
+      ],
+    },
+
+    // ──────────────────────────────────────────────────────────────────
+    // STAGE 7 — Cleanup / bugfix cluster.
+    // ──────────────────────────────────────────────────────────────────
+    {
+      id: "stage7_cleanup",
+      summary: "Tiny fixes that erase rough edges.",
+      items: [
+        {
+          id: "fix.pilots_dialog_refs",
+          status: "pending",
+          size: "XS",
+          summary: "renderPilotsDialog uses cp.pilotId → state.pilots.find().name/mental/tokens, not cp.* directly.",
+          acceptance: ["Per-pilot rows show correct name + mental cap + token count."],
+          current_gap_ref: "index.html:3459-3464",
+        },
+        {
+          id: "fix.export_version_dynamic",
+          status: "pending",
+          size: "XS",
+          summary: "Export JSON appVersion reads from a single APP_VERSION constant, not hardcoded '0.0.2'.",
+          acceptance: [
+            "APP_VERSION constant declared at top of script; both export + version comment use it.",
+            "Export bundle shows the current running version.",
+          ],
+          current_gap_ref: "index.html:1248",
+        },
+        {
+          id: "fix.crouched_status_on_action",
+          status: "pending",
+          size: "XS",
+          summary: "CROUCH action resolve adds 'CROUCHED' to statusEffects; any movement action clears it.",
+          acceptance: [
+            "CROUCH resolve toggles r.statusEffects to include 'CROUCHED'.",
+            "MOVE/CHARGE/STRAFE/STEP/BOOST resolve removes 'CROUCHED'.",
+          ],
+          current_gap_ref: "index.html:3220-3231",
+        },
+        {
+          id: "fix.strain_threshold_coprocessor",
+          status: "pending",
+          size: "XS",
+          summary: "calcStrainThreshold includes co-processor module bonus correctly (use the right module id, not actionTokenBonus on a nonexistent module).",
+          acceptance: [
+            "Add coprocessor module to MODULES if missing OR remap calcStrainThreshold to count the right field.",
+            "Verify: sil 4 robot with 2 coprocessors → threshold = ceil(4/2) + 2 = 4.",
+          ],
+          current_gap_ref: "index.html:804-809",
+        },
+      ],
+    },
+  ],
+
+  // Items intentionally NOT in this sprint (call out so Tom sees the cuts).
+  out_of_scope: [
+    "3D schematic renderer (Android has it via OpenGL; webapp keeps 2D only).",
+    "Robot Compare screen (Android side-by-side stat diff).",
+    "Content packs system (activate/deactivate, pack-filter chips).",
+    "Rulebook screen with full markdown rendering.",
+    "Onboarding overlay first-run UX.",
+    "Image portraits on pilots + equipment (robot photo stays).",
+    "Backup bundle migration logic (basic export/import already works).",
+    "Loadout sheet (aggregate weapons) — defer; component-by-component view works for play.",
+    "Battle Action Log + 50-entry undo stack — keep simple toast + manual round step.",
+  ],
+  // Tom's scope confirmation 2026-06-06: "everything necessary to play. That'll
+  // include all talents." Talent variants therefore moved IN-scope as
+  // pilot.battle_talent_variants. Remaining cuts above are UX polish only —
+  // none gate playing the game at the table.
+}
