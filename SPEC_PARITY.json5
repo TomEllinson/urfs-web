@@ -133,8 +133,9 @@
       items: [
         {
           id: "wizard.build_hud",
-          status: "pending",
+          status: "done",
           size: "M",
+          history: [{ when: "2026-06-06", note: "shipped — 9-chip sticky HUD with red WGT/PWR flags" }],
           summary: "Live build HUD on robot editor: BP, weight (/maxLoad), power, fuel, shields, capacitors, strain threshold, GSPD, boost. Mirrors Android BuildHud.kt.",
           acceptance: [
             "Sticky bar above the COMPONENTS list shows all 9 stats with color-coded weight + power (red if over / negative).",
@@ -146,8 +147,9 @@
         },
         {
           id: "wizard.validate_robot_gate",
-          status: "pending",
+          status: "done",
           size: "S",
+          history: [{ when: "2026-06-06", note: "shipped — validateRobot returns issues, warning chip on DONE, red dot on Garage card" }],
           summary: "Pre-save validator: power generation present, weight ≤ maxLoad, ground capability (legs or wheels), all Multi-Toggle slots assigned. Returns issues list.",
           acceptance: [
             "validateRobot(r) returns { isValid, issues: string[] } matching webapp/current line 4484-4559.",
