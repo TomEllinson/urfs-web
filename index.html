@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.22 (2026-06-06)
+  Version: 0.0.23 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2030,6 +2030,8 @@ handlers["pass-priority"] = () => {
       robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
       const cap = robot.capacitorsMax ?? 0;
       robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
+      // Shutdown-this-round clears at round advance; robot can act again.
+      if (robot.shutdown) robot.shutdown = false;
     }
     showToast(`Round ${b.round} begins.`);
   } else {
@@ -2049,6 +2051,7 @@ handlers["round-next"] = () => {
     robot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
     const cap = robot.capacitorsMax ?? 0;
     robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
+    if (robot.shutdown) robot.shutdown = false;
   }
   dbPut("battles", b);
   render();
@@ -2397,25 +2400,64 @@ handlers["frame-save-done"] = () => {
   closeModal();
 };
 
-// Shutdown gate overlay — placeholder until the reboot-roll mechanic
-// ships in the next slice. Just informs the player and lets them
-// dismiss (acknowledging the gate). The actual FD d6 vs 5+ roll +
-// outcome wiring lands in strain.shutdown_reboot_test.
-function renderShutdownReboot(rid /*, lastRoll */) {
+// Shutdown reboot test. Roll FD d6 vs 5+:
+//   hits ≥ 1 → success, sysStrain -= 3 (clamped), shutdownPending cleared
+//   hits = 0 → fail, r.shutdown = true (robot skips turn until round
+//             advance, which clears the flag in pass-priority + round-next)
+function renderShutdownReboot(rid, lastRoll) {
   const r = findBattleRobot(state.activeBattle, rid);
   if (!r) return "<p>?</p>";
+  const fd = r.frameDurability || 1;
+  const threshold = 5;
+  const dieChip = v => {
+    const hit = v >= threshold;
+    return `<span class="chip ${hit ? "amber" : "muted"}" style="font-size:14px; padding:6px 10px; margin-right:4px">${v}</span>`;
+  };
   return `
     <h2>SHUTDOWN CHECK</h2>
-    <p class="meta">System Strain ${r.systemStrain}/${r.systemStrainThreshold} — at threshold. The robot must roll a Reboot test before it can act.</p>
-    <div style="margin-top:10px; padding:10px; background:rgba(239,83,80,0.10); border:1px solid rgba(239,83,80,0.45); border-radius:var(--bevel)">
-      <div class="label-small label-red">REBOOT TEST</div>
-      <p class="meta" style="margin-top:6px">Roll mechanic ships in the next slice. For now: resolve at the table, then drain strain via Strain Clear / Heat Vent, or accept Shutdown for the round.</p>
-    </div>
+    <p class="meta">System Strain <strong>${r.systemStrain}/${r.systemStrainThreshold}</strong>. Roll ${fd} d6 vs ${threshold}+ to reboot.<br/>
+      Hits ≥ 1 → −3 System Strain, robot clears. Hits = 0 → Shutdown (skip turn until next round).</p>
+    ${lastRoll ? `
+      <div style="margin-top:12px">
+        <div class="label-small">LAST ROLL</div>
+        <div style="margin-top:6px">${lastRoll.dice.map(dieChip).join("")}</div>
+        <div style="margin-top:10px; font-size:18px">
+          ${lastRoll.hits > 0
+            ? `<span class="label-cyan">✓ REBOOTED · ${lastRoll.hits} hit${lastRoll.hits === 1 ? "" : "s"} · −3 Strain</span>`
+            : `<span class="label-red">✗ SHUTDOWN · 0 hits · skip turn</span>`}
+        </div>
+      </div>
+    ` : ""}
     <div class="actions" style="margin-top:14px">
-      <button class="btn ghost" data-act="modal-close">DISMISS</button>
+      ${lastRoll
+        ? `<button class="btn amber" data-act="shutdown-reboot-done">DONE</button>`
+        : `<button class="btn ghost" data-act="modal-close">SKIP (manual)</button>
+           <button class="btn amber" data-act="shutdown-reboot-roll">ROLL ${fd} D6 VS ${threshold}+</button>`}
     </div>
   `;
 }
+handlers["shutdown-reboot-roll"] = () => {
+  const d = state.modal.data;
+  const r = findBattleRobot(state.activeBattle, d.id);
+  if (!r) return;
+  const fd = r.frameDurability || 1;
+  const threshold = 5;
+  const dice = rollFrameSaveDice(fd);
+  const hits = dice.filter(v => v >= threshold).length;
+  d.lastRoll = { dice, hits, threshold };
+  if (hits > 0) {
+    r.systemStrain = Math.max(0, r.systemStrain - 3);
+    r.shutdownPending = false;
+  } else {
+    r.shutdown = true;
+    r.shutdownPending = false;
+  }
+  dbPut("battles", state.activeBattle);
+  render();
+};
+handlers["shutdown-reboot-done"] = () => {
+  closeModal();
+};
 handlers["apply-damage"] = ({ id }) => {
   const r = findBattleRobot(state.activeBattle, id);
   if (!r) return;

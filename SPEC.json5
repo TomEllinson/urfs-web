@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.22",
+    current_version: "0.0.23",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -271,8 +271,12 @@
       id: "strain.shutdown_reboot_test",
       summary: "Shutdown overlay: roll FD d6 vs 5+ to reboot. Fail → Shutdown stays until next round (skip turn).",
       depends_on: ["strain.shutdown_threshold_check"],
-      status: "pending",
+      status: "done",
       acceptance: "Roll dialog with FD dice; success = sysStrain -= 3 and Shutdown cleared; fail = robot.shutdown=true.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Replace v0.0.22 placeholder with real roll dialog mirroring Frame Save shape: FD d6 vs 5+, success → sysStrain-=3 + shutdownPending=false, fail → r.shutdown=true. Round-advance (pass-priority + round-next) also resets r.shutdown so Shutdown robot can act next round." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.23. renderShutdownReboot replaced placeholder with real dice UI: amber-hit / muted-miss chips per die, ✓ REBOOTED · N hits · −3 Strain or ✗ SHUTDOWN · 0 hits banner. shutdown-reboot-roll handler: FD d6 vs 5+, success → r.systemStrain = max(0, prev-3) + clear shutdownPending, fail → r.shutdown=true + clear pending. round-advance (both pass-priority double-pass branch AND round-next manual) now resets r.shutdown=false. 3 cases verified: [5,5]→2 hits→strain 5→2, shutdownPending false; [1,1]→0 hits→strain unchanged, shutdown true; round-next → shutdown false again." },
+      ],
     },
     {
       id: "strain.pilot_knockout_threshold",

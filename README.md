@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.22 — 2026-06-06
+v0.0.23 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.23** (2026-06-06): Shutdown reboot test. Replaced the
+  v0.0.22 placeholder with the real FD d6 vs 5+ dice roll. Success
+  → sysStrain −3 + `shutdownPending` cleared (robot can act).
+  Failure → `shutdown=true` + skip turn until round advance, which
+  now clears the flag in both PASS double-pass and manual + ROUND
+  paths.
 - **v0.0.22** (2026-06-06): System Strain threshold gate (stage 5
   begins). When sysStrain hits the threshold, `r.shutdownPending`
   is flagged and the next action attempt is intercepted into a
