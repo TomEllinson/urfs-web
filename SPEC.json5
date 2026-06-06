@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.26",
+    current_version: "0.0.27",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -319,8 +319,12 @@
       id: "dice.salvo_per_target_plus_mental",
       summary: "Salvo: per-target ranged attack roll. If targets > Mental, an extra Mental check. Each target receives one token.",
       depends_on: ["cockpit.dice_chips_wake_up"],
-      status: "pending",
+      status: "done",
       acceptance: "Pick 3 targets with Mental 2 → 3 ranged rolls + 1 Mental check; tokens land on each target.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Add multi-target picker to SALVO action-resolve dialog (lists other battle robots, checkboxes). On RESOLVE: bump r.salvoTokens per target by 1; if targetCount > pilot.Mental, toast 'Mental check required'. Per-target ranged rolls happen via existing dice roller (open separately). Sysstrain + pilotStrain bumps unchanged (existing v0.0.6 logic)." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.27. ActionResolveDialog gains a TARGETS section when k===SALVO: lists every battle robot except self (P1+P2, skipping destroyed), each card tappable to toggle inclusion. open-action initializes state.modal.data.targetIds=[]; toggle-salvo-target handler mutates that list and re-renders. Header shows count + Mental check warning when count > pilot.mental. RESOLVE applies +1 salvoTokens to each picked target's battle state and toasts if Mental check needed. Spec acceptance verified: pilot Mental 2, 3 P2 targets selected → all 3 receive salvoTokens=1, sysStrain bumps, primary budget consumed." },
+      ],
     },
     {
       id: "dice.charge_move_plus_melee",

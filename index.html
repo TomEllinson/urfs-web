@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.26 (2026-06-06)
+  Version: 0.0.27 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2519,6 +2519,15 @@ function renderApplyDamage(rid, cid, amount, type) {
 // ════════════════════════════════════════════════════════════════════
 // ACTION RESOLVE MODAL + STRAIN DIALOGS + COMPONENT SHEET
 // ════════════════════════════════════════════════════════════════════
+handlers["toggle-salvo-target"] = ({ tid }) => {
+  const d = state.modal?.data;
+  if (!d) return;
+  d.targetIds = d.targetIds || [];
+  const n = Number(tid);
+  const i = d.targetIds.indexOf(n);
+  if (i >= 0) d.targetIds.splice(i, 1); else d.targetIds.push(n);
+  render();
+};
 handlers["open-action"] = ({ id, k }) => {
   // Defense-in-depth: refuse to open a spent action even if the disabled
   // attribute was bypassed somehow. PASS is always available.
@@ -2542,7 +2551,7 @@ handlers["open-action"] = ({ id, k }) => {
     showToast("Robot is Shutdown — skip turn or wait for reboot next round.");
     return;
   }
-  pushModal("action-resolve", { id: Number(id), k });
+  pushModal("action-resolve", { id: Number(id), k, targetIds: [] });
 };
 let renderActionResolve = function (rid, k) {
   const r = findBattleRobot(state.activeBattle, rid);
@@ -2581,6 +2590,38 @@ let renderActionResolve = function (rid, k) {
           <span style="font-size:11px; color:var(--on-surface-muted); margin-left:8px">I'll bump strain at the table</span>
         </div>
       </div>
+      `;
+    })()}
+    ${(() => {
+      if (k !== "SALVO") return "";
+      const b = state.activeBattle;
+      const targets = [...(b.p1Robots || []), ...(b.p2Robots || [])]
+        .filter(x => x.robotId !== rid && !x.destroyed);
+      if (targets.length === 0) return "";
+      const sel = new Set(state.modal?.data?.targetIds || []);
+      const pilot = _pickedPilot && _pickedPilot !== "MANUAL"
+        ? (state.pilots || []).find(p => {
+            const cp = (r.cockpitPilots || []).find(c => `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot);
+            return cp && p.id === cp.pilotId;
+          })
+        : null;
+      const mental = pilot?.mental || 0;
+      const mentalCheckNeeded = sel.size > mental && sel.size > 0;
+      return `
+        <div class="label-small label-cyan" style="margin-top:10px">TARGETS (${sel.size})</div>
+        <p style="font-size:12px; color:var(--on-surface-muted)">Each target gets 1 saturation token. If targets > pilot Mental (${mental}), roll an extra Mental check.</p>
+        <div id="salvo-target-list" style="display:flex; flex-direction:column; gap:4px">
+          ${targets.map(t => {
+            const on = sel.has(t.robotId);
+            return `<div class="card tight" data-act="toggle-salvo-target" data-tid="${t.robotId}" style="border-color:${on ? "var(--amber)" : "var(--surface-3)"}; cursor:pointer">
+              <strong>${escapeHtml(t.robotName || "Target")}</strong>
+              <span class="chip ${t.side === "P2" ? "red" : ""}" style="margin-left:8px">${t.side || "P1"}</span>
+              ${on ? `<span class="chip amber" style="margin-left:6px">✓ TARGET</span>` : ""}
+              ${(t.salvoTokens || 0) > 0 ? `<span class="chip muted" style="margin-left:6px">${t.salvoTokens} TOK</span>` : ""}
+            </div>`;
+          }).join("")}
+        </div>
+        ${mentalCheckNeeded ? `<p class="label-small label-amber" style="margin-top:6px">⚠ ${sel.size} > Mental ${mental} → extra Mental check required</p>` : ""}
       `;
     })()}
     ${actionRollKind(k) ? `
@@ -2705,6 +2746,26 @@ handlers["resolve-action"] = ({ id, k }) => {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
       if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
+      // Salvo: per-target saturation tokens + Mental check trigger.
+      if (k === "SALVO") {
+        const tids = state.modal?.data?.targetIds || [];
+        const b = state.activeBattle;
+        const all = [...(b.p1Robots || []), ...(b.p2Robots || [])];
+        for (const tid of tids) {
+          const t = all.find(x => x.robotId === tid);
+          if (t) t.salvoTokens = (t.salvoTokens || 0) + 1;
+        }
+        const pilot = _pickedPilot && _pickedPilot !== "MANUAL"
+          ? (state.pilots || []).find(p => {
+              const cp = (r.cockpitPilots || []).find(c => `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot);
+              return cp && p.id === cp.pilotId;
+            })
+          : null;
+        const mental = pilot?.mental || 0;
+        if (tids.length > mental && tids.length > 0) {
+          showToast(`Salvo on ${tids.length} targets — Mental check (${mental}) needed.`);
+        }
+      }
       let pilotStrainMsg = "";
       if (actionShowsPilotPicker(k)) {
         const cost = actionPilotStrainCost(k);

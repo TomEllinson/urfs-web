@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.26 — 2026-06-06
+v0.0.27 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.27** (2026-06-06): Salvo gains a multi-target picker
+  (stage 6 begins). ActionResolveDialog for SALVO shows every
+  other battle robot as a tappable card; each pick increments a
+  saturation token on that target. If targets > pilot Mental, an
+  inline amber warning flags the extra Mental check.
 - **v0.0.26** (2026-06-06): Heat Vent Mental check auto-resolves on
   RESOLVE. Picked pilot's mental d6 vs 5+; on hits ≥ 1, sysStrain
   drops by hits and shutdownPending clears if it falls below
