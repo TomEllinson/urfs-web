@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.44 (2026-06-06)
+  Version: 0.0.45 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -1701,6 +1701,14 @@ let renderEquipmentEditor = function (id) {
 handlers["toggle-keyword"] = ({ id, k }) => {
   const e = state.equipment.find(x => x.id === Number(id));
   if (!e) return;
+  // Persist in-flight form values before re-render, otherwise toggling a
+  // keyword wipes the user's unsaved NAME / SIL / NOTES edits.
+  const nameEl = document.getElementById("eq-name");
+  const silEl = document.getElementById("eq-sil");
+  const notesEl = document.getElementById("eq-notes");
+  if (nameEl) e.name = nameEl.value || e.name;
+  if (silEl) e.silhouette = parseInt(silEl.value, 10) || 1;
+  if (notesEl) e.notes = notesEl.value || "";
   e.keywords = e.keywords || [];
   if (e.keywords.includes(k)) e.keywords = e.keywords.filter(x => x !== k);
   else e.keywords.push(k);

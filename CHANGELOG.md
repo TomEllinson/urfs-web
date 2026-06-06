@@ -121,10 +121,18 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.44 — 2026-06-06
+v0.0.45 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.45** (2026-06-06): Equipment editor sticks. Tapping a
+  keyword chip used to wipe the un-saved NAME / SIL / NOTES fields
+  because the chip toggle triggered a full re-render that re-read
+  from saved state. Now the toggle handler captures the in-flight
+  form values into the equipment record before re-rendering. End-
+  to-end Playwright pass confirms typed values survive arbitrary
+  chip toggle sequences and the live COMPUTED STATS panel reflects
+  them correctly.
 - **v0.0.44** (2026-06-06): Robot builder + equipment correctness pass
   against the Android `CalculationEngine.kt` source of truth. Robot
   BP now uses the canonical formula `sil×cc + str×sil + dur×sil +
