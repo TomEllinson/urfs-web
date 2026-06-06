@@ -121,10 +121,14 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.33 — 2026-06-06
+v0.0.34 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.34** (2026-06-06): Boost Dodge wired. Fuel gate refuses
+  if `fuelCurrent < 1`; otherwise the reaction deducts 1 fuel and
+  toasts the +1 die on the Physical check (the dice roller picks
+  up the +1 via the existing chip catalog). Closes stage 6.
 - **v0.0.33** (2026-06-06): Parry now bumps a
   `pendingParryReductions` counter on resolve and toasts the +1
   attacker-threshold rule for table-time application. Counter

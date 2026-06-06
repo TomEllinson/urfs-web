@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.33",
+    current_version: "0.0.34",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -396,8 +396,12 @@
       id: "dice.boost_dodge_fuel",
       summary: "Boost Dodge: reaction, dodge + reduce inertia. Costs fuel.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Spend fuel, +1 die on dodge.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Per rulebook L248: Boost Dodge = Physical check + Boost equal to hits + costs fuel. Add BOOST_DODGE to actionShowsPilotPicker + actionPilotStrainCost (cost 1, matching Hip Shot/Quick Strike pattern). Resolve-action branch: refuse if fuelCurrent < 1, otherwise decrement fuel by 1 and toast +1 die on dodge per rulebook." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.34. BOOST_DODGE added to actionShowsPilotPicker + actionPilotStrainCost. Fuel gate at top of resolve-action (BEFORE the action cascade) refuses with 'Boost Dodge needs ≥ 1 fuel' when fuelCurrent < 1, leaving strain/budget/pilot untouched. When fuel is sufficient, the reaction branch deducts 1 fuel and toasts '−1 Fuel, +1 die on the Physical check'. Two-arm verified: fuel 3 → fuel 2 + sysStrain 1 + pilotStrain 1 + reactions 1 + both toasts; fuel 0 → refused, all counters at 0. Closes stage 6 action dice flows (8 slices, 0.0.27 → 0.0.34)." },
+      ],
     },
   ],
 

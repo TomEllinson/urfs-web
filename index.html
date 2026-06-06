@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.33 (2026-06-06)
+  Version: 0.0.34 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2663,7 +2663,7 @@ let renderActionResolve = function (rid, k) {
 // Per spec: these four actions surface the pilot picker for pilot-strain routing.
 // (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
 function actionShowsPilotPicker(k) {
-  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY";
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE";
 }
 // True if the robot has at least one equipped melee weapon on a
 // non-destroyed component (item with "Melee" in its keywords array).
@@ -2681,7 +2681,7 @@ function robotHasMeleeWeapon(r) {
 // SALVO/MELEE_ASSAULT are "per target" in the rulebook — webapp applies +1 baseline;
 // per-target multiplication ships with the per-target dice flow in stage 6.
 function actionPilotStrainCost(k) {
-  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY") return 1;
+  if (k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE") return 1;
   return 0; // HEAT_VENT cost is Free (Mental check); picker only routes identity
 }
 // Each action whose mechanics include rolling dice maps to a roll
@@ -2724,6 +2724,13 @@ handlers["resolve-action"] = ({ id, k }) => {
   // v0.0.1 picks the dominant effect: primary +1S +1P (or pilot mental hard-cap-check),
   // reaction +1S +1P, incidental free. The "MANUAL" pilot pick suppresses the bump.
   const isManual = _pickedPilot === "MANUAL";
+  // Boost Dodge fuel gate (rulebook L248) BEFORE the action cascade so a
+  // no-fuel attempt doesn't bump strain or budget.
+  if (k === "BOOST_DODGE" && (r.fuelCurrent ?? 0) < 1) {
+    showToast("Boost Dodge needs ≥ 1 fuel.");
+    _pickedPilot = null;
+    return;
+  }
   if (k === "PASS") {
     r.pilotTokens = 0;
     r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, pilotStrain: 0 }));
@@ -2803,6 +2810,11 @@ handlers["resolve-action"] = ({ id, k }) => {
       if (k === "PARRY") {
         r.pendingParryReductions = (r.pendingParryReductions || 0) + 1;
         showToast(`Parry queued (×${r.pendingParryReductions}) — +1 to attacker's threshold per parry.`);
+      }
+      // Boost Dodge: −1 Fuel, +1 die on the Physical check.
+      if (k === "BOOST_DODGE") {
+        r.fuelCurrent = (r.fuelCurrent ?? 0) - 1;
+        showToast("Boost Dodge — −1 Fuel, +1 die on the Physical check.");
       }
       // Salvo / Strafe / Melee Assault: per-target tokens. Mental check
       // trigger only applies to ranged (Salvo / Strafe).
