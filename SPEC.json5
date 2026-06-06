@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.37",
+    current_version: "0.0.38",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -444,8 +444,12 @@
       id: "equipment.mount_swap",
       summary: "Mount-Point keyword equipment can be swapped at deploy. After battle starts, no swap unless Grab/Drop.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Editor allows mount swap; battle locks it.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Verification slice. The two-shape model (build robot in state.robots, battle robot snapshot in state.activeBattle.p*Robots) already implements the gate: garage's wizard + hub edit the build shape freely; battle's comp-sheet only exposes DAMAGE/REPAIR — no add/remove/swap controls. Grab/Drop mid-battle equipment handoff between robots is NOT modeled (that's a positional-keyword interaction for a future slice). DECISION_LOG: keep the all-equipment-locked behavior; the Mount-Point-specific exception via Grab/Drop is more permissive than current and ships later." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.38 (no code changes — verification only). Playwright: edit state.robots[0] to add an Axe → build shape now [Sword, Axe], but state.activeBattle.p1Robots[0] still [Sword] because deploy snapshots equipment at deploy time. Battle comp-sheet check confirmed it has DAMAGE controls but NO add/remove/swap UI affordance (regex match against 'add equipment|swap|mount swap' returned false). Closes stage 7 modules + capacitor + equipment." },
+      ],
     },
   ],
 

@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.37 — 2026-06-06
+v0.0.38 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.38** (2026-06-06): Equipment mount swap is already locked
+  during battle via the two-shape model (build robot vs battle
+  snapshot). Verification confirmed: building adds a sword to the
+  build robot leaves the deployed battle robot's equipment
+  unchanged, and the battle comp-sheet exposes no add/remove/swap
+  UI. Closes stage 7.
 - **v0.0.37** (2026-06-06): Equipment broken state surfaces.
   Damaged-to-0 equipment now dims, gets a strikethrough name and
   an explicit red BROKEN chip on the comp sheet, and is filtered
