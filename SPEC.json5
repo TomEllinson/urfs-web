@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.41",
+    current_version: "0.0.42",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -492,8 +492,12 @@
       id: "status.grappling_grab_break",
       summary: "Grab action: become grappler; target gains GRAPPLED status. Break Free: roll to escape.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Grab target → both robots show grapple icon; Break Free rolls; on success, GRAPPLED cleared.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. GRAPPLED chip already renders in statusChip (red). Adding: target-picker on GRAB resolve → target.statusEffects gains GRAPPLED + self gains GRAPPLING; statusChip extended with GRAPPLING; BREAK_FREE rolls pilot.physical d6 vs 5+ → on success clears both sides + their grapple link." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.42. statusChip extended: GRAPPLING orange chip after GRAPPLED. Target picker extended to include GRAB. GRAB resolve: takes first picked target, sets target.statusEffects += 'GRAPPLED' + target.grappledById = self.robotId AND self.statusEffects += 'GRAPPLING' + self.grapplingId = target.robotId (clean STANDING from both first). BREAK_FREE in actionShowsPilotPicker; resolve rolls pilot.physical d6 vs 5+; on hits ≥ 1, clears GRAPPLED + grappledById on self, looks up grappler via the back-link and clears its GRAPPLING + grapplingId. Round-trip verified: GRAB → Us[GRAPPLING→2], Foe[GRAPPLED←1]; BREAK_FREE (2 hits) → both cleared, statusEffects empty, links null." },
+      ],
     },
     {
       id: "status.flying_vector_lock",

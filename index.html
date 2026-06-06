@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.41 (2026-06-06)
+  Version: 0.0.42 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -1992,6 +1992,7 @@ function statusChip(r) {
   if (s.includes("SHUTDOWN")) return `<span class="chip red">SHUTDOWN</span>`;
   if (s.includes("DOWN")) return `<span class="chip red">DOWN</span>`;
   if (s.includes("GRAPPLED")) return `<span class="chip orange">GRAPPLED</span>`;
+  if (s.includes("GRAPPLING")) return `<span class="chip orange">GRAPPLING</span>`;
   if (s.includes("CROUCHED")) return `<span class="chip amber">CROUCHED</span>`;
   if (s.includes("FLYING") || r.altitude > 0) return `<span class="chip">FLYING</span>`;
   return `<span class="chip green">STANDING</span>`;
@@ -2609,7 +2610,7 @@ let renderActionResolve = function (rid, k) {
       `;
     })()}
     ${(() => {
-      if (k !== "SALVO" && k !== "STRAFE" && k !== "MELEE_ASSAULT") return "";
+      if (k !== "SALVO" && k !== "STRAFE" && k !== "MELEE_ASSAULT" && k !== "GRAB") return "";
       const b = state.activeBattle;
       const targets = [...(b.p1Robots || []), ...(b.p2Robots || [])]
         .filter(x => x.robotId !== rid && !x.destroyed);
@@ -2691,7 +2692,7 @@ let renderActionResolve = function (rid, k) {
 // Per spec: these four actions surface the pilot picker for pilot-strain routing.
 // (HEAT_VENT shows it to identify the rolling pilot — its cost is Free.)
 function actionShowsPilotPicker(k) {
-  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE";
+  return k === "SALVO" || k === "CHARGE" || k === "MELEE_ASSAULT" || k === "HEAT_VENT" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE" || k === "BREAK_FREE";
 }
 // True if the robot has at least one equipped melee weapon on a
 // non-destroyed component (item with "Melee" in its keywords array).
@@ -2900,6 +2901,63 @@ handlers["resolve-action"] = ({ id, k }) => {
       }
       showToast(`${a.label} — +1 SStrain${pilotStrainMsg}.`);
     } else {
+      // Grab: target → GRAPPLED + back-link; self → GRAPPLING + forward-link.
+      // Acts on the first picked target id (single-target).
+      if (k === "GRAB") {
+        const tids = state.modal?.data?.targetIds || [];
+        const tid = tids[0];
+        const b = state.activeBattle;
+        const all = [...(b.p1Robots || []), ...(b.p2Robots || [])];
+        const target = all.find(x => x.robotId === tid);
+        if (target) {
+          target.statusEffects = [...(target.statusEffects || []).filter(s => s !== "STANDING"), "GRAPPLED"];
+          target.grappledById = r.robotId;
+          r.statusEffects = [...(r.statusEffects || []).filter(s => s !== "STANDING"), "GRAPPLING"];
+          r.grapplingId = tid;
+          showToast(`Grabbed ${target.robotName} — both GRAPPLED.`);
+        } else {
+          showToast("Grab — pick a target first.");
+        }
+      }
+      // Break Free: roll picked pilot's Physical d6 vs 5+. ≥1 hit clears
+      // GRAPPLED on self and GRAPPLING on the linked grappler.
+      if (k === "BREAK_FREE") {
+        if (!(r.statusEffects || []).includes("GRAPPLED")) {
+          showToast("Not GRAPPLED.");
+        } else {
+          let physical = 0, pilotName = "pilot";
+          if (_pickedPilot && _pickedPilot !== "MANUAL") {
+            const cp = (r.cockpitPilots || []).find(c =>
+              `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot
+            );
+            const pilot = cp ? (state.pilots || []).find(x => x.id === cp.pilotId) : null;
+            if (pilot) { physical = pilot.physical || 0; pilotName = pilot.name || "pilot"; }
+          }
+          if (physical <= 0) {
+            showToast("Break Free — no rolling pilot, resolve at table.");
+          } else {
+            const dice = [];
+            for (let i = 0; i < physical; i++) dice.push(1 + Math.floor(Math.random() * 6));
+            const hits = dice.filter(v => v >= 5).length;
+            if (hits > 0) {
+              r.statusEffects = (r.statusEffects || []).filter(s => s !== "GRAPPLED");
+              if (r.grappledById != null) {
+                const b = state.activeBattle;
+                const all = [...(b.p1Robots || []), ...(b.p2Robots || [])];
+                const grappler = all.find(x => x.robotId === r.grappledById);
+                if (grappler) {
+                  grappler.statusEffects = (grappler.statusEffects || []).filter(s => s !== "GRAPPLING");
+                  grappler.grapplingId = null;
+                }
+              }
+              r.grappledById = null;
+              showToast(`Break Free (${pilotName}) — ${dice.join(",")} → ${hits} hits, escaped!`);
+            } else {
+              showToast(`Break Free (${pilotName}) — ${dice.join(",")} → 0 hits, still GRAPPLED.`);
+            }
+          }
+        }
+      }
       // Pivot: rotate facing by the chosen amount (mod 360).
       if (k === "PIVOT") {
         const rot = state.modal?.data?.rotateBy || 0;

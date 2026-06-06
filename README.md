@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.41 — 2026-06-06
+v0.0.42 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.42** (2026-06-06): Grappling wired. GRAB picks a target →
+  both sides get GRAPPLED/GRAPPLING with a back-link. BREAK_FREE
+  rolls the picked pilot's Physical d6 vs 5+; on success the
+  status and link both sides clear. Orange chips render on both
+  involved robots.
 - **v0.0.41** (2026-06-06): Crouched ranged bonus verification —
   the +2 CROUCHED chip on RANGED rolls was already wired since
   v0.0.2's DiceTalentChips port. Empty / CROUCHED+RANGED /
