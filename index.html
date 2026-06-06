@@ -430,6 +430,20 @@
     z-index: 200;
     box-shadow: 0 4px 14px rgba(0,0,0,0.5);
   }
+  #onboarding-overlay {
+    position: fixed; inset: 0; background: rgba(7,17,26,0.93);
+    z-index: 300; display: flex; align-items: center; justify-content: center;
+  }
+  #onboarding-overlay .ob-card {
+    background: var(--surface-1); border: 1px solid var(--cyan);
+    border-radius: var(--bevel); padding: 28px 24px; max-width: 340px; width: 90vw;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  #onboarding-overlay h2 { color: var(--cyan); margin: 0 0 10px; }
+  #onboarding-overlay p  { color: var(--on-surface-muted); margin: 0 0 20px; line-height: 1.5; font-size: 13px; }
+  .ob-dots { display:flex; gap:6px; justify-content:center; margin-bottom:18px; }
+  .ob-dot  { width:8px; height:8px; border-radius:50%; background:var(--surface-3); }
+  .ob-dot.active { background:var(--cyan); }
 </style>
 </head>
 <body>
@@ -437,12 +451,14 @@
   <div class="titlebar">
     <span class="brand" id="title-brand">GARAGE</span>
     <span class="suffix" id="title-suffix">// MECH_DB</span>
+    <button id="onboarding-btn" style="margin-left:auto;background:none;border:none;color:var(--on-surface-muted);font-size:16px;cursor:pointer;padding:4px 8px" data-act="show-onboarding">?</button>
   </div>
   <main id="screen"></main>
   <nav class="botnav" id="botnav"></nav>
 </div>
 <div id="modal-host"></div>
 <div id="toast-host"></div>
+<div id="onboarding-overlay" style="display:none"></div>
 <script>
 const APP_VERSION = "0.1.0";
 // ────────────────────────────────────────────────────────────────────
@@ -1348,6 +1364,56 @@ handlers["clear-image"] = async ({ id }) => {
   await saveRobot(r);
   pushModal("robot-editor", { id: Number(id) });
 };
+handlers["pick-pilot-image"] = ({ id }) => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = async () => {
+    const file = inp.files?.[0];
+    if (!file) return;
+    try {
+      const raw = await readImageAsDataUrl(file);
+      const sized = await downscaleDataUrl(raw);
+      const p = state.pilots.find(x => x.id === Number(id));
+      if (!p) return;
+      p.imageData = sized;
+      await dbPut("pilots", p);
+      pushModal("pilot-editor", { id: Number(id) });
+    } catch (e) { console.error(e); alert("Image read failed: " + e.message); }
+  };
+  inp.click();
+};
+handlers["clear-pilot-image"] = async ({ id }) => {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (!p) return;
+  p.imageData = null;
+  await dbPut("pilots", p);
+  pushModal("pilot-editor", { id: Number(id) });
+};
+handlers["pick-equipment-image"] = ({ id }) => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = async () => {
+    const file = inp.files?.[0];
+    if (!file) return;
+    try {
+      const raw = await readImageAsDataUrl(file);
+      const sized = await downscaleDataUrl(raw);
+      const e = state.equipment.find(x => x.id === Number(id));
+      if (!e) return;
+      e.imageData = sized;
+      await dbPut("equipment", e);
+      pushModal("equipment-editor", { id: Number(id) });
+    } catch (err) { console.error(err); alert("Image read failed: " + err.message); }
+  };
+  inp.click();
+};
+handlers["clear-equipment-image"] = async ({ id }) => {
+  const e = state.equipment.find(x => x.id === Number(id));
+  if (!e) return;
+  e.imageData = null;
+  await dbPut("equipment", e);
+  pushModal("equipment-editor", { id: Number(id) });
+};
 
 // ────────────────────────────────────────────────────────────────────
 // JSON export / import. Bundle every store into a versioned blob so
@@ -2067,7 +2133,7 @@ renderEquipment = function () {
   return `
     ${state.equipment.map(e => `
       <div class="list-card" data-act="edit-equipment" data-id="${e.id}">
-        <div class="thumb">🔫</div>
+        <div class="thumb" style="${e.imageData ? 'overflow:hidden;padding:0' : ''}">${e.imageData ? `<img src="${escapeHtml(e.imageData)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" />` : "🔫"}</div>
         <div style="flex:1">
           <h3>${escapeHtml(e.name || "Unnamed")}</h3>
           ${(() => {
@@ -2117,6 +2183,15 @@ let renderEquipmentEditor = function (id) {
   if (!e) return "<p>?</p>";
   return `
     <h2>EQUIPMENT // EDIT</h2>
+    <div class="row-gap" style="margin-bottom:10px; align-items:center">
+      <div style="width:56px; height:56px; border-radius:var(--bevel); background:var(--surface-1); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; font-size:28px">
+        ${e.imageData ? `<img src="${escapeHtml(e.imageData)}" style="width:100%;height:100%;object-fit:cover" />` : "🔫"}
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:4px">
+        <button class="btn ghost" data-act="pick-equipment-image" data-id="${e.id}">${e.imageData ? "REPLACE PHOTO" : "PICK PHOTO"}</button>
+        ${e.imageData ? `<button class="btn ghost" data-act="clear-equipment-image" data-id="${e.id}">REMOVE</button>` : ""}
+      </div>
+    </div>
     <div class="field"><label>NAME</label><input id="eq-name" value="${escapeHtml(e.name)}" /></div>
     <div class="row-gap" style="flex-wrap:wrap">
       <div class="field" style="flex:1; min-width:96px"><label>SIL</label><input id="eq-sil" type="number" min="1" value="${e.silhouette || 1}" /></div>
@@ -2191,7 +2266,7 @@ renderPilots = function () {
   return `
     ${state.pilots.map(p => `
       <div class="list-card" data-act="edit-pilot" data-id="${p.id}">
-        <div class="thumb">${p.isAi ? "🤖" : "👤"}</div>
+        <div class="thumb" style="${p.imageData ? 'overflow:hidden;padding:0' : ''}">${p.imageData ? `<img src="${escapeHtml(p.imageData)}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" />` : (p.isAi ? "🤖" : "👤")}</div>
         <div style="flex:1">
           <h3>${escapeHtml(p.name || "Unnamed")}</h3>
           <div class="row-gap" style="margin-top:4px; flex-wrap:wrap">
@@ -2266,6 +2341,15 @@ let renderPilotEditor = function (id) {
   };
   return `
     <h2>PILOT // EDIT</h2>
+    <div class="row-gap" style="margin-bottom:10px; align-items:center">
+      <div style="width:56px; height:56px; border-radius:50%; background:var(--surface-1); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; font-size:28px">
+        ${p.imageData ? `<img src="${escapeHtml(p.imageData)}" style="width:100%;height:100%;object-fit:cover" />` : "👤"}
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:4px">
+        <button class="btn ghost" data-act="pick-pilot-image" data-id="${p.id}">${p.imageData ? "REPLACE PHOTO" : "PICK PHOTO"}</button>
+        ${p.imageData ? `<button class="btn ghost" data-act="clear-pilot-image" data-id="${p.id}">REMOVE</button>` : ""}
+      </div>
+    </div>
     <div class="field"><label>NAME</label><input id="p-name" value="${escapeHtml(p.name)}" /></div>
     <div class="row-gap" style="flex-wrap:wrap; margin-top:6px">
       <div class="field" style="flex:1; min-width:120px">
@@ -2467,9 +2551,13 @@ let renderForceEditor = function (id) {
         available.map(p =>
           `<option value="${p.id}" ${p.id === cur ? "selected" : ""}>${escapeHtml(p.name || "Pilot")} <span class="chip">${p.bpCost || 0} BP</span></option>`
         ).join("");
+      const assignedPilot = cur ? state.pilots.find(p => p.id === cur) : null;
+      const slotPortrait = assignedPilot?.imageData
+        ? `<div style="width:28px;height:28px;border-radius:50%;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px"><img src="${escapeHtml(assignedPilot.imageData)}" style="width:100%;height:100%;object-fit:cover" /></div>`
+        : `<span style="font-size:16px;margin-right:4px">👤</span>`;
       return `
         <div style="margin:4px 0 4px 8px">
-          <div class="meta">${escapeHtml(slot.slotName)} · ${escapeHtml(slot.moduleName)}</div>
+          <div class="meta" style="display:flex;align-items:center">${slotPortrait}${escapeHtml(slot.slotName)} · ${escapeHtml(slot.moduleName)}</div>
           <select data-act="force-editor-pilot-pick" data-fid="${f.id}" data-rid="${r.id}" data-slot="${i}"
             style="margin-top:4px;width:100%;background:var(--bg2);color:var(--fg);border:1px solid var(--border);padding:6px;border-radius:4px">
             ${opts}
@@ -2920,6 +3008,7 @@ function renderPerRobotBattle(b, rid) {
       <div class="row-gap" style="margin-top:6px; flex-wrap:wrap">
         ${statusChip(r)}
         <button class="btn ghost" style="padding:4px 8px" data-act="status-picker" data-id="${r.robotId}">▾ STATUS</button>
+        <button class="btn ghost" style="padding:4px 8px" data-act="show-loadout" data-id="${r.robotId}">LOADOUT</button>
         <button class="btn ghost" style="padding:4px 8px; margin-left:auto" data-act="open-roller" data-id="${r.robotId}" data-k="">🎲 ROLL</button>
       </div>
       <div class="stat-grid" style="margin-top:8px">
@@ -2980,7 +3069,11 @@ function renderCockpitPilots(r) {
       </div>`;
     }
     const koThreshold = 5 + (p.training || 0) + calcPilotStrainBonus(r, cp);
+    const portrait = p.imageData
+      ? `<div style="width:32px;height:32px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${escapeHtml(p.imageData)}" style="width:100%;height:100%;object-fit:cover" /></div>`
+      : `<span style="font-size:20px">👤</span>`;
     return `<div class="list-card static" ${cp.isKO ? `style="opacity:0.5"` : ""}>
+      ${portrait}
       <strong>${escapeHtml(cp.slotName)}</strong>
       <span class="chip">${escapeHtml(p.name || "Pilot")}</span>
       ${cp.isKO ? `<span class="chip red" style="margin-left:6px">KO</span>` : ""}
@@ -4721,6 +4814,46 @@ handlers["clear-status"] = ({ id }) => {
 handlers["open-comp"] = ({ id, cid }) => {
   pushModal("comp-sheet", { id: Number(id), cid: Number(cid) });
 };
+handlers["show-loadout"] = ({ id }) => pushModal("loadout-sheet", { id: Number(id) });
+let renderLoadoutSheet = function (rid) {
+  const r = findBattleRobot(state.activeBattle, rid);
+  if (!r) return "<p>?</p>";
+  const allEquip = r.components.flatMap(c => (c.equipment || []).map(e => ({ ...e, _comp: c })));
+  const weapons = allEquip.filter(e => (e.damage || 0) > 0);
+  const guards  = allEquip.filter(e => (e.keywords || []).includes("Guard"));
+  const utility = allEquip.filter(e => (e.damage || 0) <= 0 && !(e.keywords || []).includes("Guard"));
+  const eqRow = (e) => {
+    const broken = (e.armorCurrent || 0) <= 0 && (e.armorMax || 0) > 0;
+    return `<div class="card tight" style="${broken ? 'opacity:0.55' : ''}">
+      <div class="row-between">
+        <strong${broken ? ' style="text-decoration:line-through"' : ''}>${escapeHtml(e.name || "Equipment")}</strong>
+        <div class="row-gap">
+          ${broken ? `<span class="chip red">BROKEN</span>` : ""}
+          ${(e.damage||0)>0 ? `<span class="chip">DMG ${e.damage}</span>` : ""}
+          ${(e.range||0)>0  ? `<span class="chip muted">RNG ${e.range}</span>` : ""}
+          ${(e.armorMax||0)>0 ? `<span class="chip ${broken?'red':e.armorCurrent<e.armorMax?'amber':'muted'}">ARM ${e.armorCurrent}/${e.armorMax}</span>` : ""}
+          ${(e.maxAmmo||0)>0 ? `<span class="chip muted">AMMO ${e.ammoRemaining??e.maxAmmo}/${e.maxAmmo}</span>` : ""}
+        </div>
+      </div>
+      <div class="meta">${escapeHtml(e._comp.name)} · ${escapeHtml(e._comp.facing || "all facings")}</div>
+    </div>`;
+  };
+  const section = (label, items) => items.length === 0 ? "" : `
+    <div class="label-small label-cyan" style="margin-top:12px">${label} (${items.length})</div>
+    ${items.map(eqRow).join("")}`;
+  return `
+    <h2>LOADOUT — ${escapeHtml(r.robotName)}</h2>
+    <div class="row-gap" style="margin-bottom:8px">
+      <span class="chip">${weapons.length} weapon${weapons.length !== 1 ? 's' : ''}</span>
+      <span class="chip muted">${allEquip.length} total items</span>
+    </div>
+    ${allEquip.length === 0 ? `<p class="meta">No equipment installed.</p>` : ""}
+    ${section("WEAPONS", weapons)}
+    ${section("GUARDS", guards)}
+    ${section("UTILITY", utility)}
+    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+  `;
+};
 let renderCompSheet = function (rid, cid) {
   const r = findBattleRobot(state.activeBattle, rid);
   const c = r?.components.find(x => x.componentId === cid);
@@ -5334,6 +5467,7 @@ renderModal = function () {
     case "move-dialog":      body = renderMoveDialog(data.id); break;
     case "status-picker":    body = renderStatusPicker(data.id); break;
     case "comp-sheet":       body = renderCompSheet(data.id, data.cid); break;
+    case "loadout-sheet":    body = renderLoadoutSheet(data.id); break;
     case "dice-roller":      body = renderDiceRoller(data.id, data.k); break;
     case "pilot-assign":           body = renderPilotAssign(data.fid, data.assignments); break;
     case "opponent-force-picker":  body = renderOpponentForcePicker(); break;
@@ -5344,6 +5478,44 @@ renderModal = function () {
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;
 };
+
+const ONBOARDING_STEPS = [
+  { title: "GARAGE — BUILD",    body: "Design your mechs. Add components, install modules, equip weapons. Each robot has a silhouette rating and a frame with defined sections." },
+  { title: "FORCES — DEPLOY",   body: "Assemble robots into a force, assign pilots to cockpits, and set a BP cap. Hit DEPLOY to launch into battle with your squad." },
+  { title: "BATTLE — RESOLVE",  body: "Track armor, fuel, actions, and pilot strain per robot. Use the action sheet to resolve attacks, maneuvers, and reactions each round." },
+];
+let _obStep = 0;
+function renderOnboarding() {
+  const s = ONBOARDING_STEPS[_obStep];
+  const dots = ONBOARDING_STEPS.map((_, i) => `<div class="ob-dot${i === _obStep ? " active" : ""}"></div>`).join("");
+  const isLast = _obStep === ONBOARDING_STEPS.length - 1;
+  return `
+    <div class="ob-card">
+      <div class="ob-dots">${dots}</div>
+      <h2>${s.title}</h2>
+      <p>${s.body}</p>
+      <button class="btn wide" id="ob-next-btn" style="background:var(--cyan);color:#07111a">${isLast ? "GET STARTED" : "NEXT"}</button>
+    </div>`;
+}
+function showOnboarding() {
+  _obStep = 0;
+  const el = document.getElementById("onboarding-overlay");
+  el.innerHTML = renderOnboarding();
+  el.style.display = "flex";
+  document.getElementById("ob-next-btn").addEventListener("click", advanceOnboarding);
+}
+function advanceOnboarding() {
+  if (_obStep < ONBOARDING_STEPS.length - 1) {
+    _obStep++;
+    const el = document.getElementById("onboarding-overlay");
+    el.innerHTML = renderOnboarding();
+    document.getElementById("ob-next-btn").addEventListener("click", advanceOnboarding);
+  } else {
+    document.getElementById("onboarding-overlay").style.display = "none";
+    dbPut("settings", { id: "onboardingSeen", value: true });
+  }
+}
+handlers["show-onboarding"] = showOnboarding;
 
 async function init() {
   await openDb();
@@ -5372,6 +5544,8 @@ async function init() {
   // If there's a single active battle, resume it.
   if (battles.length === 1) state.activeBattle = battles[0];
   render();
+  const seen = await dbGet("settings", "onboardingSeen");
+  if (!seen?.value) showOnboarding();
 }
 init().catch(err => {
   console.error(err);

@@ -426,8 +426,9 @@
     items: [
       {
         id: "ux.onboarding_overlay",
-        status: "pending",
+        status: "done",
         size: "S",
+        history: [{ when: "2026-06-06", note: "shipped — 3-step welcome on first load, '?' reopens, settings.onboardingSeen persists" }],
         summary: "First-run welcome overlay walks new testers through the four tabs.",
         acceptance: [
           "On first load (no IndexedDB records OR explicit onboardingSeen flag missing), an overlay covers the screen with a 3-step tour: 1) Garage build, 2) Forces deploy, 3) Battle resolve.",
@@ -438,8 +439,9 @@
       },
       {
         id: "ux.image_portraits",
-        status: "pending",
+        status: "done",
         size: "S",
+        history: [{ when: "2026-06-06", note: "shipped — pilot+equipment photo picker, thumbnails on list cards / cockpit pickers / comp-sheet rows, emoji fallback" }],
         summary: "Pilots + equipment can carry a photo (data URL) like robots already do.",
         acceptance: [
           "Pilot editor gains a PICK PHOTO button + thumbnail slot mirroring the robot editor.",
@@ -452,8 +454,9 @@
       },
       {
         id: "battle.loadout_sheet",
-        status: "pending",
+        status: "done",
         size: "S",
+        history: [{ when: "2026-06-06", note: "shipped — LOADOUT button on per-robot battle screen, WEAPONS/GUARDS/UTILITY sections, stats chips + broken state" }],
         summary: "Aggregate weapons + equipment sheet for a robot during battle.",
         acceptance: [
           "Per-robot battle screen gains a LOADOUT button (next to ACTION SHEET).",
