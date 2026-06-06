@@ -496,8 +496,9 @@
       },
       {
         id: "battle.action_log_undo",
-        status: "pending",
+        status: "done",
         size: "M",
+        history: [{ when: "2026-06-06", note: "shipped — recordUndo wraps resolve-action/applyDamage/round-next/pass-priority, 50-entry FIFO cap, ACTION LOG modal with per-entry UNDO" }],
         summary: "Battle action log + per-step undo. Replaces 'just trust toasts' UX.",
         acceptance: [
           "Battle gains an ACTION LOG button. Modal shows last 50 entries: time, robot name, action, outcome (e.g. 'Salvo on Mech X — 4 hits').",
@@ -509,8 +510,9 @@
       },
       {
         id: "data.content_packs",
-        status: "pending",
+        status: "done",
         size: "M",
+        history: [{ when: "2026-06-06", note: "shipped — state.packs with urfs-core seed, rebuildContent flattens active packs, Settings modal with toggle + JSON import, robotInactivePacks chip on Garage" }],
         summary: "Multi-pack module + talent + keyword catalogs with activation UI.",
         acceptance: [
           "Settings modal lists installed packs (initially just 'urfs-core' baked in).",

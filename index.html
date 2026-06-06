@@ -482,7 +482,7 @@ const APP_VERSION = "0.1.0";
 // ────────────────────────────────────────────────────────────────────
 const MODULE_SLOT_CAPS = { CORE: 8, UTILITY: 8, HEAD: 6, ARM: 4, LEG: 4 };
 const MODULE_CATEGORIES = ["Power","Fuel","Defense","Cockpit","Mounts","Mobility","Frame"];
-const MODULES = [
+let MODULES = [
   { id: "stable_reactor",      name: "Stable Reactor",       category: "Power",    weight: 2, power: 25, definitionLimit: ["CORE","UTILITY"], description: "+25 Power. Core/Utility only." },
   { id: "aux_reactor",         name: "Aux Reactor",          category: "Power",    weight: 1, power: 10, definitionLimit: [], description: "+10 Power. Auxiliary support reactor." },
   { id: "volatile_reactor",    name: "Volatile Reactor",     category: "Power",    weight: 1, power: 30, definitionLimit: ["CORE","UTILITY"], description: "+30 Power. Explodes if its component is destroyed.", explosiveDamage: 1 },
@@ -515,7 +515,7 @@ const MODULES = [
   { id: "inertia_driver",      name: "Inertia Driver",       category: "Frame",    weight: 1, power: 0, definitionLimit: ["ARM"], description: "Pre-melee fuel spend → bonus dice." },
   { id: "coprocessor",         name: "Coprocessor",          category: "Frame",    weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+1 System Strain Threshold; multiple stack.", coprocessorBonus: 1, stackable: true, maxCopies: -1 },
 ];
-const MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
+let MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
 
 const RANK_BUDGETS = {
   ROOKIE:      { statPoints: 10, talentSlots: 2, bpCost: 5  },
@@ -523,7 +523,7 @@ const RANK_BUDGETS = {
   VETERAN:     { statPoints: 16, talentSlots: 6, bpCost: 15 },
 };
 
-const TALENTS = [
+let TALENTS = [
   { name: "Sharpshooter",       cost: 3, slots: 1, description: "On a single-target Ranged Salvo, may burn the free Incidental for +3 dice. Inertia 0 only.",                    statReqs: { mental: 3 } },
   { name: "Deadeye",            cost: 4, slots: 1, description: "After a single-target Ranged attack, add a Pilot Strain token to make it Unblockable.",                          statReqs: { mental: 4 } },
   { name: "Tank",               cost: 4, slots: 1, description: "+1 Mental dedicated to System-Strain reduction. Pilot HP = 3 × Physical instead of 2 × Physical.",               statReqs: { physical: 4 } },
@@ -660,6 +660,7 @@ const state = {
   modal: null, // { kind, data }
   compareMode: false, // multi-select mode for garage.robot_compare
   compareSelected: [], // ids of robots selected for compare (max 2)
+  packs: [], // content packs; seeded with urfs-core on init
 };
 
 function setState(patch) {
@@ -676,6 +677,17 @@ function showToast(msg, ms = 2200) {
   const host = document.getElementById("toast-host");
   host.innerHTML = `<div class="toast">${escapeHtml(msg)}</div>`;
   setTimeout(() => { if (host.innerHTML.includes(escapeHtml(msg))) host.innerHTML = ""; }, ms);
+}
+
+function recordUndo(label) {
+  const b = state.activeBattle;
+  if (!b) return;
+  b.undoStack = b.undoStack || [];
+  const snapshot = JSON.parse(JSON.stringify(b));
+  // Remove undoStack from the snapshot to avoid recursive growth.
+  delete snapshot.undoStack;
+  b.undoStack.push({ label, when: Date.now(), snapshot });
+  if (b.undoStack.length > 50) b.undoStack.shift();
 }
 
 function escapeHtml(s) {
@@ -1149,6 +1161,34 @@ function render() {
         document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 80);
     }
+    // Wire pack import file input if settings modal is open.
+    const packInput = document.getElementById("pack-import-input");
+    if (packInput) {
+      packInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const pack = JSON.parse(text);
+          if (!pack.id || !pack.name || !pack.version) {
+            showToast("Invalid pack: missing id, name, or version."); return;
+          }
+          pack.active = pack.active ?? true;
+          pack.modules = Array.isArray(pack.modules) ? pack.modules : [];
+          pack.talents = Array.isArray(pack.talents) ? pack.talents : [];
+          pack.keywords = Array.isArray(pack.keywords) ? pack.keywords : [];
+          const existing = state.packs.findIndex(p => p.id === pack.id);
+          if (existing >= 0) state.packs[existing] = pack;
+          else state.packs.push(pack);
+          rebuildContent();
+          dbPut("settings", { id: "packs", value: state.packs });
+          showToast(`Pack "${pack.name}" imported.`);
+          pushModal("settings", {});
+        } catch (err) {
+          showToast("Import failed: " + err.message);
+        }
+      });
+    }
   }
 
   // Wire all action attributes after rendering. Centralised event
@@ -1218,6 +1258,7 @@ function exportImportBar() {
       <button class="btn ghost" style="flex:1; min-width:80px" data-act="import-json">IMPORT JSON</button>
       <button class="btn ghost" style="flex:1; min-width:80px" data-act="enter-compare-mode">⚖️ COMPARE</button>
       <button class="btn ghost" style="flex:1; min-width:80px" data-act="open-rulebook">📖 RULEBOOK</button>
+      <button class="btn ghost" style="padding:8px 12px" data-act="open-settings" title="Content Pack Settings">⚙</button>
     </div>
   `;
 }
@@ -1248,6 +1289,9 @@ renderGarage = function () {
     const isSelected = inCompare && sel.includes(r.id);
     const cardStyle = isSelected ? "box-shadow:0 0 0 2px var(--cyan)" : "";
     const cardAct = inCompare ? "compare-select-robot" : "edit-robot";
+    // Detect modules from inactive packs so the user knows content is missing.
+    const inactivePacks = robotInactivePacks(r);
+    const inactiveChips = inactivePacks.map(n => `<span class="chip" style="background:var(--surface-3);color:var(--amber, #f59e0b);font-size:10px">[pack: ${escapeHtml(n)} inactive]</span>`).join("");
     return `
       <div class="list-card" style="${cardStyle}" data-act="${cardAct}" data-id="${r.id}">
         ${inCompare ? `<div style="width:24px; height:24px; border-radius:50%; border:2px solid ${isSelected ? "var(--cyan)" : "var(--surface-3)"}; background:${isSelected ? "var(--cyan)" : "transparent"}; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:12px; color:#07111a">${isSelected ? "✓" : ""}</div>` : ""}
@@ -1258,6 +1302,7 @@ renderGarage = function () {
             <span class="chip">SIL ${r.silhouette || 1}</span>
             <span class="chip muted">${baseBp} BP</span>
             ${showDep ? `<span class="chip orange">→ ${dep} DEP</span>` : ""}
+            ${inactiveChips}
           </div>
           <div class="meta">
             FS ${r.frameStrength || 1} · FD ${r.frameDurability || 1} · FM ${r.frameMaterial || 1}
@@ -1275,6 +1320,19 @@ renderGarage = function () {
     ${inCompare ? "" : `<button class="fab" data-act="new-robot">＋</button>`}
   `;
 };
+function robotInactivePacks(robot) {
+  const inactivePacks = state.packs.filter(p => !p.active);
+  if (inactivePacks.length === 0) return [];
+  const robotModuleIds = new Set(
+    (robot.components || []).flatMap(c => (c.modules || []).map(m => m.moduleId))
+  );
+  const matched = new Set();
+  for (const p of inactivePacks) {
+    if ((p.modules || []).some(m => robotModuleIds.has(m.id))) matched.add(p.name);
+  }
+  return [...matched];
+}
+
 function depBP(robot, force) {
   const base = calcRobotBP(robot);
   if (!force) return base;
@@ -1687,6 +1745,7 @@ handlers["modal-close"] = () => {
   }
   closeModal();
 };
+handlers["close-modal"] = () => closeModal();
 function clampInt(id, lo, hi, dflt) {
   const v = parseInt(document.getElementById(id)?.value || "", 10);
   if (Number.isNaN(v)) return dflt;
@@ -2216,7 +2275,7 @@ handlers["delete-equipment"] = async ({ id }) => {
   render();
 };
 
-const KEYWORDS = [
+let KEYWORDS = [
   // Stat-modifying (port from CalculationEngine.kt:479-629)
   "Melee", "Ranged", "Edge", "Energy Edge", "Energy Weapon",
   "Power Cell", "Extended Range", "Scatter", "Long Range",
@@ -2229,6 +2288,25 @@ const KEYWORDS = [
   "Link Point", "Tethered", "Corded", "Penetrating",
   "Indirect", "Module Slot",
 ];
+
+// Snapshot the built-in data as the urfs-core pack definition.
+// This is captured once at parse time so rebuildContent can restore it.
+const _CORE_MODULES = MODULES.slice();
+const _CORE_TALENTS = TALENTS.slice();
+const _CORE_KEYWORDS = KEYWORDS.slice();
+
+function rebuildContent() {
+  const activePacks = state.packs.filter(p => p.active);
+  if (activePacks.length === 0) {
+    MODULES = []; TALENTS = []; KEYWORDS = [];
+  } else {
+    MODULES = activePacks.flatMap(p => p.modules || []);
+    TALENTS = activePacks.flatMap(p => p.talents || []);
+    KEYWORDS = [...new Set(activePacks.flatMap(p => p.keywords || []))];
+  }
+  MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
+}
+
 let renderEquipmentEditor = function (id) {
   const e = state.equipment.find(x => x.id === id);
   if (!e) return "<p>?</p>";
@@ -2748,6 +2826,7 @@ function deployForceWithAssignments(f, assignments) {
     p1ForceId: f.id,
     p2ForceName: "Opponent",
     p2ForceId: null,
+    undoStack: [],
     p1Robots: f.robotIds.map(rid => {
       const robot = state.robots.find(r => r.id === rid);
       const bs = buildBattleRobotState(robot, "P1");
@@ -2848,6 +2927,9 @@ function renderBattleOverview(b) {
       <button class="btn ghost" data-act="round-prev">− ROUND</button>
       <button class="btn ghost" data-act="round-next" style="flex:1">＋ ROUND</button>
       <button class="btn danger" data-act="end-battle">END</button>
+    </div>
+    <div class="row-gap" style="margin-top:8px">
+      <button class="btn ghost" style="flex:1" data-act="open-action-log">ACTION LOG (${(b.undoStack || []).length})</button>
     </div>
   `;
 }
@@ -2970,6 +3052,8 @@ function syncFlyingStatus(r) {
 handlers["pass-priority"] = ({ side } = {}) => {
   const b = state.activeBattle;
   if (!b) return;
+  const _passSide = side || b.priority || "P1";
+  recordUndo(`${_passSide} passed`);
   b.passedThisRound = b.passedThisRound || { P1: false, P2: false };
   const passingSide = side || b.priority || "P1";
   const sideRobots = passingSide === "P1" ? (b.p1Robots || []) : (b.p2Robots || []);
@@ -3005,6 +3089,7 @@ handlers["pass-priority"] = ({ side } = {}) => {
 handlers["round-prev"] = () => { if (state.activeBattle.round > 1) state.activeBattle.round--; dbPut("battles", state.activeBattle); render(); };
 handlers["round-next"] = () => {
   const b = state.activeBattle;
+  recordUndo(`Round ${b.round} ended`);
   b.round++;
   b.passedThisRound = { P1: false, P2: false };
   b.priority = "P1";
@@ -3033,6 +3118,24 @@ handlers["end-battle"] = async () => {
 handlers["open-robot"] = ({ id }) => {
   state.activeRobotId = Number(id);
   render();
+};
+handlers["open-action-log"] = () => pushModal("action-log", {});
+handlers["undo-battle-step"] = ({ idx }) => {
+  const b = state.activeBattle;
+  if (!b || !b.undoStack) return;
+  const i = Number(idx);
+  const entry = b.undoStack[i];
+  if (!entry) return;
+  // Restore snapshot, keep the stack up to (not including) this entry.
+  const restored = JSON.parse(JSON.stringify(entry.snapshot));
+  restored.undoStack = b.undoStack.slice(0, i);
+  state.activeBattle = restored;
+  // Sync back into battles array and persist.
+  const bi = state.battles.findIndex(x => x.id === restored.id);
+  if (bi >= 0) state.battles[bi] = restored;
+  dbPut("battles", restored);
+  // Stay on action-log modal so user can see the updated (shorter) list.
+  pushModal("action-log", {});
 };
 </script>
 
@@ -3237,6 +3340,8 @@ function applyDamage(robotId, componentId, amount, type, opts = {}) {
   if (!r) return { breach: 0 };
   const c = r.components.find(c => (c.componentId ?? c.tempId) === componentId);
   if (!c) return { breach: 0 };
+  recordUndo(`Damage ${amount} to ${c.name || c.definition || "component"} (${escapeHtml(r.name || "Robot")})`);
+
 
   let remaining = amount;
 
@@ -4061,17 +4166,14 @@ handlers["resolve-action"] = ({ id, k }) => {
   const r = findBattleRobot(state.activeBattle, id);
   const a = ACTIONS[k];
   if (!r || !a) return;
-  // Apply mechanical effect — at minimum bump strain per action's cost line.
-  // v0.0.1 picks the dominant effect: primary +1S +1P (or pilot mental hard-cap-check),
-  // reaction +1S +1P, incidental free. The "MANUAL" pilot pick suppresses the bump.
   const isManual = _pickedPilot === "MANUAL";
-  // Boost Dodge fuel gate (rulebook L248) BEFORE the action cascade so a
-  // no-fuel attempt doesn't bump strain or budget.
   if (k === "BOOST_DODGE" && (r.fuelCurrent ?? 0) < 1) {
     showToast("Boost Dodge needs ≥ 1 fuel.");
     _pickedPilot = null;
     return;
   }
+  // PASS delegates to pass-priority which records its own undo entry.
+  if (k !== "PASS") recordUndo(`${escapeHtml(r.name || "Robot")} — ${a.label}`);
   if (k === "PASS") {
     handlers["pass-priority"]({ side: r.side || state.activeBattle.priority || "P1" });
   } else if (k === "SHIELD_RECOVERY") {
@@ -5499,6 +5601,66 @@ handlers["open-pilots-tab"] = () => {
 // ════════════════════════════════════════════════════════════════════
 // MODAL ROUTER + INIT
 // ════════════════════════════════════════════════════════════════════
+function renderSettingsModal() {
+  const rows = state.packs.map((p, i) => {
+    const activeClass = p.active ? "chip" : "chip muted";
+    return `
+      <div style="padding:10px 0; border-bottom:1px solid var(--border)">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <div style="flex:1; min-width:0">
+            <div style="font-size:13px; font-weight:700">${escapeHtml(p.name)}</div>
+            <div class="meta">v${escapeHtml(p.version)} · ${(p.modules||[]).length} modules · ${(p.talents||[]).length} talents · ${(p.keywords||[]).length} keywords</div>
+          </div>
+          ${p.id === "urfs-core"
+            ? `<span class="chip">CORE (always on)</span>`
+            : `<button class="btn ghost" style="padding:5px 10px; font-size:11px" data-act="toggle-pack" data-idx="${i}">${p.active ? "DEACTIVATE" : "ACTIVATE"}</button>`}
+        </div>
+      </div>`;
+  }).join("");
+  return `
+    <h2>CONTENT PACKS</h2>
+    <div style="max-height:55vh; overflow-y:auto; margin:8px 0">${rows}</div>
+    <label class="btn ghost wide" style="margin-top:10px; display:block; text-align:center; cursor:pointer">
+      IMPORT PACK (JSON)
+      <input type="file" accept="application/json,.json" style="display:none" id="pack-import-input">
+    </label>
+    <button class="btn ghost wide" style="margin-top:8px" data-act="close-modal">CLOSE</button>
+  `;
+}
+handlers["open-settings"] = () => pushModal("settings", {});
+handlers["toggle-pack"] = ({ idx }) => {
+  const p = state.packs[Number(idx)];
+  if (!p || p.id === "urfs-core") return;
+  p.active = !p.active;
+  rebuildContent();
+  dbPut("settings", { id: "packs", value: state.packs });
+  pushModal("settings", {});
+};
+
+function renderActionLog() {
+  const b = state.activeBattle;
+  const stack = b ? (b.undoStack || []) : [];
+  const rows = stack.length === 0
+    ? `<p style="color:var(--muted, #6b7c8d); margin:16px 0">No recorded actions yet.</p>`
+    : [...stack].reverse().map((entry, revIdx) => {
+        const realIdx = stack.length - 1 - revIdx;
+        const t = new Date(entry.when);
+        const ts = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        return `<div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border)">
+          <div style="flex:1; min-width:0">
+            <div style="font-size:13px; font-weight:600">${escapeHtml(entry.label)}</div>
+            <div class="meta">${ts}</div>
+          </div>
+          <button class="btn ghost" style="padding:5px 10px; font-size:11px; flex-shrink:0" data-act="undo-battle-step" data-idx="${realIdx}">UNDO</button>
+        </div>`;
+      }).join("");
+  return `
+    <h2>ACTION LOG</h2>
+    <div style="max-height:60vh; overflow-y:auto; margin-top:8px">${rows}</div>
+    <button class="btn ghost wide" style="margin-top:14px" data-act="close-modal">CLOSE</button>
+  `;
+}
+
 renderModal = function () {
   if (!state.modal) return "";
   const { kind, data } = state.modal;
@@ -5532,6 +5694,8 @@ renderModal = function () {
     case "shutdown-reboot":        body = renderShutdownReboot(data.id, data.lastRoll); break;
     case "robot-compare":          body = renderRobotCompare(data.idA, data.idB); break;
     case "rulebook":               body = renderRulebookModal(data.line); break;
+    case "action-log":             body = renderActionLog(); break;
+    case "settings":               body = renderSettingsModal(); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;
@@ -5583,6 +5747,21 @@ async function init() {
   ]);
   state.robots = robots; state.pilots = pilots; state.equipment = equipment;
   state.forces = forces; state.battles = battles;
+  // Load content packs; seed urfs-core if not persisted yet.
+  const packsRecord = await dbGet("settings", "packs");
+  if (packsRecord?.value) {
+    state.packs = packsRecord.value;
+  } else {
+    state.packs = [{
+      id: "urfs-core", name: "URFS Core", version: "1.0",
+      active: true,
+      modules: _CORE_MODULES,
+      talents: _CORE_TALENTS,
+      keywords: _CORE_KEYWORDS,
+    }];
+    dbPut("settings", { id: "packs", value: state.packs });
+  }
+  rebuildContent();
   // Migrate robots built before parentTempId was tracked — attach all
   // orphan components to Core so the schematic tree is valid.
   for (const r of state.robots) {
