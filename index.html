@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.21 (2026-06-06)
+  Version: 0.0.22 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2396,6 +2396,26 @@ function recomputeDerivedStats(r) {
 handlers["frame-save-done"] = () => {
   closeModal();
 };
+
+// Shutdown gate overlay — placeholder until the reboot-roll mechanic
+// ships in the next slice. Just informs the player and lets them
+// dismiss (acknowledging the gate). The actual FD d6 vs 5+ roll +
+// outcome wiring lands in strain.shutdown_reboot_test.
+function renderShutdownReboot(rid /*, lastRoll */) {
+  const r = findBattleRobot(state.activeBattle, rid);
+  if (!r) return "<p>?</p>";
+  return `
+    <h2>SHUTDOWN CHECK</h2>
+    <p class="meta">System Strain ${r.systemStrain}/${r.systemStrainThreshold} — at threshold. The robot must roll a Reboot test before it can act.</p>
+    <div style="margin-top:10px; padding:10px; background:rgba(239,83,80,0.10); border:1px solid rgba(239,83,80,0.45); border-radius:var(--bevel)">
+      <div class="label-small label-red">REBOOT TEST</div>
+      <p class="meta" style="margin-top:6px">Roll mechanic ships in the next slice. For now: resolve at the table, then drain strain via Strain Clear / Heat Vent, or accept Shutdown for the round.</p>
+    </div>
+    <div class="actions" style="margin-top:14px">
+      <button class="btn ghost" data-act="modal-close">DISMISS</button>
+    </div>
+  `;
+}
 handlers["apply-damage"] = ({ id }) => {
   const r = findBattleRobot(state.activeBattle, id);
   if (!r) return;
@@ -2464,6 +2484,19 @@ handlers["open-action"] = ({ id, k }) => {
     const b = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
     if (a.bucket === "primary" && b.primaryUsed >= 1) { showToast("Primary already spent this round."); return; }
     if (a.bucket === "reaction" && b.reactionsUsed >= 2) { showToast("Both reactions spent this round."); return; }
+  }
+  // Shutdown gate: if strain reached threshold, the robot must roll a
+  // reboot test before doing anything else. STRAIN_CLEAR + HEAT_VENT
+  // can drain strain so they're the escape hatch and remain allowed.
+  // PASS also bypasses (you can always pass priority).
+  if (r?.shutdownPending && k !== "STRAIN_CLEAR" && k !== "HEAT_VENT" && k !== "PASS") {
+    pushModal("shutdown-reboot", { id: Number(id) });
+    return;
+  }
+  // Already in Shutdown (last round's reboot failed) — robot can't act.
+  if (r?.shutdown && k !== "PASS") {
+    showToast("Robot is Shutdown — skip turn or wait for reboot next round.");
+    return;
   }
   pushModal("action-resolve", { id: Number(id), k });
 };
@@ -2598,6 +2631,7 @@ handlers["resolve-action"] = ({ id, k }) => {
   } else if (!isManual) {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
+      if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
       let pilotStrainMsg = "";
       if (actionShowsPilotPicker(k)) {
         const cost = actionPilotStrainCost(k);
@@ -2829,6 +2863,8 @@ let renderStrainDialog = function (rid) {
 handlers["bump-strain"] = ({ id, d }) => {
   const r = findBattleRobot(state.activeBattle, id);
   r.systemStrain = Math.max(0, r.systemStrain + parseInt(d, 10));
+  if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
+  if (r.systemStrain < r.systemStrainThreshold && r.shutdownPending) r.shutdownPending = false;
   dbPut("battles", state.activeBattle);
   pushModal("strain-dialog", { id: Number(id) });
 };
@@ -3597,6 +3633,7 @@ renderModal = function () {
     case "opponent-force-picker":  body = renderOpponentForcePicker(); break;
     case "apply-damage":           body = renderApplyDamage(data.rid, data.cid, data.amount, data.type); break;
     case "frame-save":             body = renderFrameSave(data.rid, data.cid, data.fd, data.fm, data.breach, data.lastRoll); break;
+    case "shutdown-reboot":        body = renderShutdownReboot(data.id, data.lastRoll); break;
     default: body = "<p>?</p>";
   }
   return `<div class="modal-back"><div class="modal">${body}</div></div>`;

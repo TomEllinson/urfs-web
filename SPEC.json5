@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.21",
+    current_version: "0.0.22",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -260,8 +260,12 @@
       id: "strain.shutdown_threshold_check",
       summary: "When sysStrain reaches strainThreshold (default 6), prompt Shutdown reboot test on this robot's next action attempt.",
       depends_on: [],
-      status: "pending",
+      status: "done",
       acceptance: "Bump sysStrain to 6 → next action click shows Shutdown overlay before resolving.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Plan: after every strain bump (resolve-action's primary/reaction branch), if sysStrain >= threshold set r.shutdownPending=true. open-action handler intercepts when shutdownPending → opens shutdown-reboot modal (stub here, real roll dialog in next slice). STRAIN_CLEAR + HEAT_VENT remain available — those drain strain so they're the way OUT of the gate." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.22. resolve-action primary/reaction branch + bump-strain handler now set r.shutdownPending = true when sysStrain >= threshold, and the bump-strain handler clears it when strain drops back below threshold. open-action handler intercepts when shutdownPending=true and routes to the new shutdown-reboot modal — EXCEPT for STRAIN_CLEAR / HEAT_VENT (escape hatches) and PASS (priority pass). r.shutdown=true (post-fail) makes the handler refuse all non-PASS actions. renderShutdownReboot is a placeholder (banner + DISMISS button); the actual FD d6 vs 5+ reboot roll lands in strain.shutdown_reboot_test. 6-step trace verified." },
+      ],
     },
     {
       id: "strain.shutdown_reboot_test",

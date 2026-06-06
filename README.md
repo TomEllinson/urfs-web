@@ -121,10 +121,16 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.21 — 2026-06-06
+v0.0.22 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.22** (2026-06-06): System Strain threshold gate (stage 5
+  begins). When sysStrain hits the threshold, `r.shutdownPending`
+  is flagged and the next action attempt is intercepted into a
+  Shutdown overlay — except STRAIN_CLEAR / HEAT_VENT (escape
+  hatches) and PASS. The actual FD d6 vs 5+ reboot roll ships next
+  slice; for now the overlay is a banner + DISMISS button.
 - **v0.0.21** (2026-06-06): UNDO·RESTORE for destroyed components
   (mistake recovery). Existing button on the comp sheet's destroyed
   overlay now calls `recomputeDerivedStats(r)` after clearing
