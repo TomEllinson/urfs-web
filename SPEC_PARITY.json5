@@ -49,8 +49,9 @@
         },
         {
           id: "build.module_slot_caps",
-          status: "pending",
+          status: "done",
           size: "S",
+          history: [{ when: "2026-06-06", note: "shipped — MODULE_SLOT_CAPS + header n/cap + disabled add+toast" }],
           summary: "Per-component module slot caps: Core/Utility 8, Head 6, Arm/Leg 4. Enforce in add-module + module-picker.",
           acceptance: [
             "Constant MODULE_SLOT_CAPS = { CORE: 8, UTILITY: 8, HEAD: 6, ARM: 4, LEG: 4 } at top of MODULES section.",
@@ -63,8 +64,9 @@
         },
         {
           id: "build.requires_chain",
-          status: "pending",
+          status: "done",
           size: "S",
+          history: [{ when: "2026-06-06", note: "shipped — OR-semantics gate in picker + red Requires chip + dependent-cascade confirm" }],
           summary: "Module `requires` chain enforced at install. Picker greys out modules whose deps aren't met on the same component or anywhere on the robot per the spec field.",
           acceptance: [
             "Each module's `requires` array names module ids; install button is disabled in picker if no required module already installed on the same component.",
@@ -76,8 +78,9 @@
         },
         {
           id: "build.max_copies",
-          status: "pending",
+          status: "done",
           size: "XS",
+          history: [{ when: "2026-06-06", note: "shipped — picker filter excludes m when installed >= maxCopies" }],
           summary: "Per-component `maxCopies` cap respected. Picker filters out a module if installed copies already at cap.",
           acceptance: [
             "Picker excludes a module whose current per-component instance count >= maxCopies (when maxCopies > 0).",

@@ -463,6 +463,7 @@
 // bearing modules for v0.0.1). Tom can paste the full pack into the
 // MODULES constant any time; the loader reads it as a flat list.
 // ────────────────────────────────────────────────────────────────────
+const MODULE_SLOT_CAPS = { CORE: 8, UTILITY: 8, HEAD: 6, ARM: 4, LEG: 4 };
 const MODULE_CATEGORIES = ["Power","Fuel","Defense","Cockpit","Mounts","Mobility","Frame"];
 const MODULES = [
   { id: "stable_reactor",      name: "Stable Reactor",       category: "Power",    weight: 2, power: 25, definitionLimit: ["CORE","UTILITY"], description: "+25 Power. Core/Utility only." },
@@ -1575,20 +1576,27 @@ let renderEditComponent = function (rid, cid) {
       </div>
     `}
     ${parentPickerHtml}
-    <div class="label-small label-cyan" style="margin-top:8px">MODULES (${(c.modules || []).length})</div>
-    ${(c.modules || []).map((m, i) => {
-      const def = MODULES_BY_ID[m.moduleId];
-      return `
-        <div class="card tight row-between">
-          <div>
-            <strong>${escapeHtml(def?.name || m.moduleId)}</strong>
-            <div class="meta" style="font-size:10px">W ${def?.weight ?? 0} · P ${def?.power ?? 0}</div>
+    ${(() => {
+      const slotCap = MODULE_SLOT_CAPS[c.definition] || 8;
+      const slotCount = (c.modules || []).length;
+      const slotsFull = slotCount >= slotCap;
+      const moduleRows = (c.modules || []).map((m, i) => {
+        const def = MODULES_BY_ID[m.moduleId];
+        return `
+          <div class="card tight row-between">
+            <div>
+              <strong>${escapeHtml(def?.name || m.moduleId)}</strong>
+              <div class="meta" style="font-size:10px">W ${def?.weight ?? 0} · P ${def?.power ?? 0}</div>
+            </div>
+            <button class="btn ghost" data-act="remove-module" data-rid="${rid}" data-cid="${cid}" data-idx="${i}">✕</button>
           </div>
-          <button class="btn ghost" data-act="remove-module" data-rid="${rid}" data-cid="${cid}" data-idx="${i}">✕</button>
-        </div>
-      `;
-    }).join("")}
-    <button class="btn wide" data-act="add-module" data-rid="${rid}" data-cid="${cid}">＋ ADD MODULE</button>
+        `;
+      }).join("");
+      const addBtn = slotsFull
+        ? `<button class="btn wide" disabled data-act="add-module-full" data-rid="${rid}" data-cid="${cid}" data-count="${slotCount}" data-cap="${slotCap}">＋ ADD MODULE</button>`
+        : `<button class="btn wide" data-act="add-module" data-rid="${rid}" data-cid="${cid}">＋ ADD MODULE</button>`;
+      return `<div class="label-small label-cyan" style="margin-top:8px">MODULES (${slotCount}/${slotCap})</div>${moduleRows}${addBtn}`;
+    })()}
     <div class="actions">
       <button class="btn ghost" data-act="modal-close-component" data-rid="${rid}" data-cid="${cid}">DONE</button>
     </div>
@@ -1611,13 +1619,41 @@ handlers["add-module"] = ({ rid, cid }) => {
   modulePickerUI.category = "All";
   pushModal("module-picker", { rid: Number(rid), cid: Number(cid) });
 };
+handlers["add-module-full"] = ({ count, cap }) => {
+  showToast(`Component slots full (${count}/${cap})`);
+};
 handlers["remove-module"] = ({ rid, cid, idx }) => {
   const r = state.robots.find(x => x.id === Number(rid));
   const c = r?.components.find(c => c.tempId === Number(cid));
   if (!c) return;
-  c.modules.splice(Number(idx), 1);
-  saveRobot(r);
-  render();
+  const removedId = c.modules[Number(idx)]?.moduleId;
+  const remainingAfterRemove = c.modules.filter((_, i) => i !== Number(idx));
+  const remainingIds = remainingAfterRemove.map(m => m.moduleId);
+  // A dependent is broken if its requires list has no overlap with the remaining ids (OR semantics).
+  const dependents = removedId
+    ? remainingAfterRemove.filter(m => {
+        const reqs = MODULES_BY_ID[m.moduleId]?.requires;
+        if (!reqs || reqs.length === 0) return false;
+        return !reqs.some(reqId => remainingIds.includes(reqId));
+      })
+    : [];
+  const doRemove = () => {
+    const dependentIds = new Set(dependents.map(m => m.moduleId));
+    c.modules = c.modules.filter((m, i) => {
+      if (i === Number(idx)) return false;
+      if (dependentIds.has(m.moduleId)) return false;
+      return true;
+    });
+    saveRobot(r);
+    render();
+  };
+  if (dependents.length > 0) {
+    if (confirm(`This component has ${dependents.length} dependent module(s). Removing breaks them. Continue?`)) {
+      doRemove();
+    }
+  } else {
+    doRemove();
+  }
 };
 
 // Module picker UI state — persists across the in-modal re-renders triggered
@@ -1635,6 +1671,10 @@ let renderModulePicker = function (rid, cid) {
     if (m.maxPerComponent && m.maxPerComponent !== -1) {
       const have = installedIds.filter(i => i === m.id).length;
       if (have >= m.maxPerComponent) return false;
+    }
+    if (m.maxCopies !== undefined && m.maxCopies !== -1 && m.maxCopies > 0) {
+      const have = installedIds.filter(i => i === m.id).length;
+      if (have >= m.maxCopies) return false;
     }
     if (cat !== "All" && m.category !== cat) return false;
     if (q && !(m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q))) return false;
@@ -1664,10 +1704,22 @@ let renderModulePicker = function (rid, cid) {
     if (m.stackable) tags.push("Stackable");
     if (m.maxCopies === -1) tags.push("Unlimited copies");
     if (m.maxPerComponent === 1) tags.push("Max 1 per component");
-    if (m.requires) tags.push(`Requires ${m.requires.join(" / ")}`);
     if (m.definitionLimit && m.definitionLimit.length > 0) tags.push(`Only: ${m.definitionLimit.join(" / ")}`);
+
+    // Check requires — any one of the listed ids must be present (OR semantics per armor_coating).
+    // "requires" on armor_coating means "at least one of these must be installed".
+    const missingReqs = m.requires
+      ? m.requires.filter(reqId => !installedIds.includes(reqId))
+      : [];
+    const reqsMet = !m.requires || missingReqs.length < m.requires.length;
+    const reqChip = (!reqsMet)
+      ? `<div style="margin-top:6px; font-size:10px; color:var(--red, #f44)">Requires: ${missingReqs.map(id => escapeHtml(MODULES_BY_ID[id]?.name || id)).join(" / ")}</div>`
+      : (m.requires ? `<div class="meta" style="font-size:10px; margin-top:6px">Requires ${m.requires.map(id => escapeHtml(MODULES_BY_ID[id]?.name || id)).join(" / ")}</div>` : "");
+
+    const greyStyle = !reqsMet ? " style=\"opacity:0.4; pointer-events:none\"" : "";
+    const act = reqsMet ? `data-act="install-module" data-rid="${rid}" data-cid="${cid}" data-mid="${m.id}"` : "";
     return `
-      <div class="card tight" data-act="install-module" data-rid="${rid}" data-cid="${cid}" data-mid="${m.id}">
+      <div class="card tight"${greyStyle} ${act}>
         <div class="row-between" style="align-items:flex-start; gap:8px">
           <div style="flex:1">
             <strong>${escapeHtml(m.name)}</strong>
@@ -1678,6 +1730,7 @@ let renderModulePicker = function (rid, cid) {
         ${stats.length > 2 ? `<div class="meta" style="font-size:11px; margin-top:4px; color:var(--cyan)">${stats.slice(2).join(" · ")}</div>` : ""}
         <div class="meta" style="font-size:12px; margin-top:6px; line-height:1.45">${escapeHtml(m.description)}</div>
         ${tags.length ? `<div class="meta" style="font-size:10px; margin-top:6px; color:var(--on-surface-muted)">${tags.join(" • ")}</div>` : ""}
+        ${reqChip}
       </div>
     `;
   };
