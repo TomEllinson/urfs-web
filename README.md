@@ -121,10 +121,17 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.42 — 2026-06-06
+v0.0.43 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.43** (2026-06-06): Flying vector lock + KO fall. Pivot
+  picker now shows a red VECTOR LOCK banner with an UNLOCK
+  (off-vector) toggle when the robot is flying and not in
+  off-vector mode — rotation buttons disappear until unlocked.
+  Pilot KO while flying now drops the robot: altitude → 0,
+  statusEffects → DOWN. **Closes the full-port spec (8 stages,
+  37 slices, 0.0.7 → 0.0.43).**
 - **v0.0.42** (2026-06-06): Grappling wired. GRAB picks a target →
   both sides get GRAPPLED/GRAPPLING with a back-link. BREAK_FREE
   rolls the picked pilot's Physical d6 vs 5+; on success the

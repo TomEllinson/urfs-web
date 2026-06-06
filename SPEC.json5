@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.42",
+    current_version: "0.0.43",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -503,8 +503,12 @@
       id: "status.flying_vector_lock",
       summary: "FLYING status: vector lock (facing locked unless off-vector pivot). Falling on KO.",
       depends_on: ["positioning.pivot_facing"],
-      status: "pending",
+      status: "done",
       acceptance: "FLYING robot can't pivot without off-vector flag; KO triggers fall.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. Two pieces: (1) PIVOT picker rotation buttons disabled when flying && !offVectorLock; UI shows 'VECTOR LOCK' chip + UNLOCK toggle. (2) Pilot KO branch (v0.0.24) when r.altitude > 0: altitude → 0, +DOWN status, toast." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.43. r.offVectorLock boolean drives the PIVOT picker: when (altitude>0 && !offVectorLock), the rotation buttons section is REPLACED with a red VECTOR LOCK banner + 'UNLOCK (off-vector)' toggle button. toggle-off-vector handler flips r.offVectorLock and re-renders. When unlocked or grounded, the full ±90°/0°/180° button set returns. Pilot KO branch in resolve-action now extends: when cp.isKO=true triggers AND r.altitude > 0, altitude → 0, statusEffects swap FLYING/STANDING for DOWN, toast 'Robot falls — altitude 0, DOWN'. 3 phases verified: locked flyer shows VECTOR LOCK banner + 0 rotation buttons + UNLOCK; off-vector unlock → full button set [-90,0,90,180]; SALVO pilot KO at strain 5 → altitude 3→0 + statusEffects [DOWN]. Closes spec (8 stages, 0.0.7 → 0.0.43)." },
+      ],
     },
   ],
 

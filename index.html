@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.42 (2026-06-06)
+  Version: 0.0.43 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2524,6 +2524,12 @@ function renderApplyDamage(rid, cid, amount, type) {
 // ════════════════════════════════════════════════════════════════════
 // ACTION RESOLVE MODAL + STRAIN DIALOGS + COMPONENT SHEET
 // ════════════════════════════════════════════════════════════════════
+handlers["toggle-off-vector"] = ({ id }) => {
+  const r = findBattleRobot(state.activeBattle, id);
+  if (!r) return;
+  r.offVectorLock = !r.offVectorLock;
+  render();
+};
 handlers["set-pivot-rotation"] = ({ rot }) => {
   const d = state.modal?.data;
   if (!d) return;
@@ -2645,19 +2651,29 @@ let renderActionResolve = function (rid, k) {
       if (k !== "PIVOT") return "";
       const current = r.facingDegrees ?? 0;
       const flying = (r.altitude ?? 0) > 0;
-      const rot = state.modal?.data?.rotateBy ?? 0;
+      const offVector = !!r.offVectorLock;
+      const locked = flying && !offVector;
+      const rot = locked ? 0 : (state.modal?.data?.rotateBy ?? 0);
       const result = ((current + rot) % 360 + 360) % 360;
       const compass = ["N","NE","E","SE","S","SW","W","NW"][Math.round(result / 45) % 8];
       return `
         <div class="label-small label-cyan" style="margin-top:10px">PIVOT</div>
-        <p style="font-size:12px; color:var(--on-surface-muted)">Current facing: ${current}° (${["N","NE","E","SE","S","SW","W","NW"][Math.round(current/45) % 8]}). Rotate up to 90°${flying ? ", or 180° (flying off-vector)" : ""}.</p>
-        <div class="row-gap" style="margin-top:6px">
-          <button class="btn ${rot === -90 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="-90">−90° CCW</button>
-          <button class="btn ${rot === 0 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="0">0°</button>
-          <button class="btn ${rot === 90 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="90">+90° CW</button>
-          ${flying ? `<button class="btn ${rot === 180 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="180">180°</button>` : ""}
-        </div>
-        <p style="font-size:12px; color:var(--on-surface-muted); margin-top:4px">After: ${result}° (${compass}).</p>
+        <p style="font-size:12px; color:var(--on-surface-muted)">Current facing: ${current}° (${["N","NE","E","SE","S","SW","W","NW"][Math.round(current/45) % 8]}). Rotate up to 90°${flying && offVector ? ", or 180° (off-vector)" : ""}.</p>
+        ${locked ? `
+          <div style="margin-top:6px; padding:8px; background:rgba(239,83,80,0.10); border:1px solid rgba(239,83,80,0.45); border-radius:var(--bevel)">
+            <span class="chip red">VECTOR LOCK</span>
+            <span style="font-size:12px; color:var(--on-surface-muted)">Flying robot's facing is locked to inertia direction. Spend the off-vector pivot to unlock.</span>
+            <button class="btn ghost" style="display:block; margin-top:6px" data-act="toggle-off-vector" data-id="${rid}">UNLOCK (off-vector)</button>
+          </div>
+        ` : `
+          <div class="row-gap" style="margin-top:6px">
+            <button class="btn ${rot === -90 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="-90">−90° CCW</button>
+            <button class="btn ${rot === 0 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="0">0°</button>
+            <button class="btn ${rot === 90 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="90">+90° CW</button>
+            ${flying ? `<button class="btn ${rot === 180 ? "amber" : "ghost"}" data-act="set-pivot-rotation" data-rot="180">180°</button>` : ""}
+          </div>
+          <p style="font-size:12px; color:var(--on-surface-muted); margin-top:4px">After: ${result}° (${compass}).</p>
+        `}
       `;
     })()}
     ${(() => {
@@ -2891,6 +2907,12 @@ handlers["resolve-action"] = ({ id, k }) => {
             if (cp.pilotStrain >= koThreshold && !cp.isKO) {
               cp.isKO = true;
               showToast(`${pilotName} KO'd! (${cp.pilotStrain}/${koThreshold} P-Strain)`);
+              // Flying KO triggers a fall: altitude → 0, +DOWN status.
+              if ((r.altitude ?? 0) > 0) {
+                r.altitude = 0;
+                r.statusEffects = [...(r.statusEffects || []).filter(s => s !== "STANDING" && s !== "FLYING"), "DOWN"];
+                showToast(`${r.robotName || "Robot"} falls — altitude 0, DOWN.`);
+              }
             }
           }
         }
