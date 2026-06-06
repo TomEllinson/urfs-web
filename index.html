@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.0.38 (2026-06-06)
+  Version: 0.0.39 (2026-06-06)
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -2109,7 +2109,7 @@ function renderPerRobotBattle(b, rid) {
       <div class="stat-grid" style="margin-top:6px">
         <div class="stat-cell ${r.systemStrain > r.systemStrainThreshold ? 'over' : 'ok'}" data-act="show-strain" data-id="${r.robotId}"><span class="lbl">STR</span><span class="val">${r.systemStrain}/${r.systemStrainThreshold}</span></div>
         <div class="stat-cell ok" data-act="show-capacitors" data-id="${r.robotId}"><span class="lbl">CAP</span><span class="val">${r.capacitorsRemaining || "—"}</span></div>
-        <div class="stat-cell ok" data-act="show-move" data-id="${r.robotId}"><span class="lbl">GSPD</span><span class="val">${r.groundSpeed || "—"}</span></div>
+        <div class="stat-cell ${(r.gspdSpent || 0) >= (r.groundSpeed || 0) && (r.groundSpeed || 0) > 0 ? "warn" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">GSPD</span><span class="val">${r.groundSpeed ? `${(r.groundSpeed - (r.gspdSpent || 0))}/${r.groundSpeed}` : "—"}</span></div>
         <div class="stat-cell ${r.boostPower > 0 ? "cyan" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">BOOST</span><span class="val">${r.boostPower || "—"}</span></div>
       </div>
     </div>
@@ -2634,14 +2634,16 @@ let renderActionResolve = function (rid, k) {
       `;
     })()}
     ${(() => {
-      if (k !== "CHARGE" && k !== "STRAFE") return "";
-      const halfGspd = Math.floor((r.groundSpeed || 0) / 2);
-      const remaining = halfGspd - (r.gspdSpent || 0);
-      const dist = state.modal?.data?.distance ?? Math.min(remaining, halfGspd);
+      if (k !== "CHARGE" && k !== "STRAFE" && k !== "MOVE") return "";
+      // MOVE: full Ground Speed per rulebook L222. CHARGE/STRAFE: half.
+      const cap = k === "MOVE" ? (r.groundSpeed || 0) : Math.floor((r.groundSpeed || 0) / 2);
+      const remaining = cap - (r.gspdSpent || 0);
+      const dist = state.modal?.data?.distance ?? Math.min(remaining, cap);
       const clamped = Math.max(0, Math.min(remaining, dist));
+      const label = k === "MOVE" ? "Full Ground Speed" : "½ Ground Speed";
       return `
-        <div class="label-small label-cyan" style="margin-top:10px">CHARGE DISTANCE</div>
-        <p style="font-size:12px; color:var(--on-surface-muted)">½ Ground Speed = ${halfGspd} SU. Already spent this round: ${r.gspdSpent || 0}. Pick distance:</p>
+        <div class="label-small label-cyan" style="margin-top:10px">${a.label.toUpperCase()} DISTANCE</div>
+        <p style="font-size:12px; color:var(--on-surface-muted)">${label} = ${cap} SU. Already spent this round: ${r.gspdSpent || 0}. Pick distance:</p>
         <input type="number" min="0" max="${remaining}" value="${clamped}" data-act="set-charge-distance" style="width:100%; padding:8px; margin-top:4px" />
         ${remaining <= 0 ? `<p class="label-small label-amber" style="margin-top:6px">⚠ No GSPD left this round.</p>` : ""}
       `;
@@ -2789,14 +2791,17 @@ handlers["resolve-action"] = ({ id, k }) => {
     if (a.bucket === "primary" || a.bucket === "reaction") {
       r.systemStrain++;
       if (r.systemStrain >= r.systemStrainThreshold && !r.shutdown) r.shutdownPending = true;
-      // Charge / Strafe: deduct chosen distance from the GSPD-spent counter.
-      if (k === "CHARGE" || k === "STRAFE") {
+      // Charge / Strafe / Move: deduct chosen distance from the GSPD-spent
+      // counter. MOVE uses full Ground Speed (rulebook L222); the other two
+      // use ½ Ground Speed per their catalog briefs.
+      if (k === "CHARGE" || k === "STRAFE" || k === "MOVE") {
         const dist = state.modal?.data?.distance || 0;
-        const halfGspd = Math.floor((r.groundSpeed || 0) / 2);
-        const remaining = halfGspd - (r.gspdSpent || 0);
+        const cap = k === "MOVE" ? (r.groundSpeed || 0) : Math.floor((r.groundSpeed || 0) / 2);
+        const remaining = cap - (r.gspdSpent || 0);
         const clamped = Math.max(0, Math.min(remaining, dist));
         r.gspdSpent = (r.gspdSpent || 0) + clamped;
-        showToast(`${a.label} — moved ${clamped} SU, ${remaining - clamped} ½GSPD left this round.`);
+        const label = k === "MOVE" ? "GSPD" : "½GSPD";
+        showToast(`${a.label} — moved ${clamped} SU, ${remaining - clamped} ${label} left this round.`);
       }
       // Melee Assault gate: requires at least one melee weapon on a
       // non-destroyed component. The picker, token application, and

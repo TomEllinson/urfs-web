@@ -18,7 +18,7 @@
     repo: "/home/tom/software_projects/urfs/webapp",
     file: "index.html",
     branch: "master",
-    current_version: "0.0.38",
+    current_version: "0.0.39",
     rulebook: "/home/tom/software_projects/urfs/android/app/src/main/assets/rulebook.md",
     revision_notes: "/home/tom/software_projects/urfs/docs/rulebook/RULEBOOK_REVISION_NOTES.md",
     android_reference: "/home/tom/software_projects/urfs/android/app/src/main",
@@ -459,8 +459,12 @@
       id: "positioning.gspd_tracking",
       summary: "Track GSPD spent per round. Move action deducts. Boost increases. Decelerate reduces inertia.",
       depends_on: ["budget.per_robot_action_pool"],
-      status: "pending",
+      status: "done",
       acceptance: "GSPD chip shows X/Y remaining; spending Move dialogs prompt amount; deducts.",
+      history: [
+        { when: "2026-06-06", who: "claude", note: "picked up. r.gspdSpent already exists since v0.0.28 + Charge/Strafe deduct + round reset. This slice: (1) vitals GSPD chip now reads X/Y remaining (current GSPD - gspdSpent / GSPD), (2) extend distance picker to MOVE — full GSPD (not ½) per rulebook L222. Boost/Decelerate ship in subsequent positioning slices." },
+        { when: "2026-06-06", who: "claude", note: "shipped in 0.0.39. Per-robot vitals GSPD cell now reads `${remaining}/${total}` instead of just total; cell flips to .warn class when fully spent. Distance picker section + resolve-action GSPD branch extended to handle MOVE: MOVE uses full Ground Speed per rulebook L222, CHARGE/STRAFE keep their ½GSPD cap. Section header now interpolates a.label so it reads MOVE DISTANCE / CHARGE DISTANCE / STRAFE DISTANCE. 4 phases verified at GSPD 6: chip 6/6 → MOVE 4 → chip 2/6 → MOVE 5 (clamped to 2) → chip 0/6 → CHARGE attempt → still 6 (no further spend allowed)." },
+      ],
     },
     {
       id: "positioning.pivot_facing",

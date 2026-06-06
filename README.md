@@ -121,10 +121,15 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.0.38 — 2026-06-06
+v0.0.39 — 2026-06-06
 
 ### Changelog
 
+- **v0.0.39** (2026-06-06): GSPD tracking surfaces (stage 8 begins).
+  Per-robot vitals GSPD cell now reads "remaining/total" and turns
+  amber when fully spent. Move action gets a distance picker
+  (full GSPD per rulebook L222), composing with Charge/Strafe's
+  existing ½GSPD pickers from v0.0.28/v0.0.29.
 - **v0.0.38** (2026-06-06): Equipment mount swap is already locked
   during battle via the two-shape model (build robot vs battle
   snapshot). Verification confirmed: building adds a sword to the
