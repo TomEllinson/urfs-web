@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.1.2 (2026-06-06) — single-force mode + editor persistence pass
+  Version: 0.1.3 (2026-06-07) — talent stat reqs reverted to match Android
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -485,7 +485,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.1.2";
+const APP_VERSION = "0.1.3";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -549,24 +549,24 @@ const RANK_BUDGETS = {
 };
 
 let TALENTS = [
-  { name: "Sharpshooter",       cost: 3, slots: 1, description: "On a single-target Ranged Salvo, may burn the free Incidental for +3 dice. Inertia 0 only.",                    statReqs: { mental: 3 } },
-  { name: "Deadeye",            cost: 4, slots: 1, description: "After a single-target Ranged attack, add a Pilot Strain token to make it Unblockable.",                          statReqs: { mental: 4 } },
-  { name: "Tank",               cost: 4, slots: 1, description: "+1 Mental dedicated to System-Strain reduction. Pilot HP = 3 × Physical instead of 2 × Physical.",               statReqs: { physical: 4 } },
-  { name: "Coordinated",        cost: 3, slots: 1, description: "When in the same robot as another Coordinated pilot, +1 die on all checks.",                                      statReqs: { mental: 3 } },
-  { name: "Shield Rider",       cost: 3, slots: 1, description: "While Shields > 0, +2 Pilot Strain Threshold.",                                                                   statReqs: { training: 3 } },
-  { name: "Fast Fingers",       cost: 2, slots: 1, description: "+1 free Toggle Incidental per round.",                                                                             statReqs: { training: 3 } },
-  { name: "Brawler",            cost: 3, slots: 1, description: "+1 die on Melee attacks.",                                                                                        statReqs: { physical: 3 } },
-  { name: "Quick Troubleshooter", cost: 3, slots: 1, description: "On a Power-Loss Emergency Shutdown trigger, may pick which module shut down to retoggle on.",                  statReqs: { mental: 3 } },
-  { name: "Neural Link",        cost: 7, slots: 2, description: "Physical replaces Mental for Pilot Strain damage AND a Fortitude check on Frame Component destruction.",          statReqs: { mental: 4 } },
-  { name: "Quick Troublemaker", cost: 3, slots: 1, description: "Once per game, force an opposing robot's Emergency Shutdown check at +2 difficulty.",                             statReqs: { training: 3 } },
-  { name: "Martial Artist",     cost: 4, slots: 1, description: "Unarmed melee = 1d6 + ½ Physical. May Parry without a melee weapon.",                                            statReqs: { physical: 4 } },
-  { name: "Cool Head",          cost: 3, slots: 1, description: "Free Incidental: remove 1 Pilot Strain token from any conscious pilot in this cockpit.",                           statReqs: { mental: 3 } },
-  { name: "Override",           cost: 4, slots: 1, description: "Shutdown reboot variant: roll excess strain as bonus dice; on success +1 HP damage to acting pilot.",             statReqs: { mental: 4 } },
-  { name: "Overclock",          cost: 5, slots: 2, description: "Shutdown reboot variant: 2× Mental d6 at 5+, once per game; +2 HP damage to acting pilot on use.",               statReqs: { mental: 4 } },
-  { name: "Berserker",          cost: 3, slots: 1, description: "+1 die on Melee when System Strain > floor(threshold/2).",                                                        statReqs: { physical: 4 } },
-  { name: "Combat Instinct",    cost: 3, slots: 1, description: "+1 die on any attack when total cockpit strain >= floor(threshold of any pilot / 2).",                            statReqs: { training: 3 } },
-  { name: "Coolant Manager",    cost: 3, slots: 1, description: "Free Incidental: Mental d6 vs 5+, remove 2× hits in System Strain (Heat Vent at 2×).",                           statReqs: { mental: 3 } },
-  { name: "Commander",          cost: 5, slots: 2, description: "Force passive: highest-Mental conscious Commander on a force grants +1 Pilot Strain Threshold to all friendly pilots.", statReqs: { mental: 5 } },
+  { name: "Sharpshooter",       cost: 3, slots: 1, description: "On a single-target Ranged Salvo, may burn the free Incidental for +3 dice. Inertia 0 only." },
+  { name: "Deadeye",            cost: 4, slots: 1, description: "After a single-target Ranged attack, add a Pilot Strain token to make it Unblockable." },
+  { name: "Tank",               cost: 4, slots: 1, description: "+1 Mental dedicated to System-Strain reduction. Pilot HP = 3 × Physical instead of 2 × Physical." },
+  { name: "Coordinated",        cost: 3, slots: 1, description: "When in the same robot as another Coordinated pilot, +1 die on all checks." },
+  { name: "Shield Rider",       cost: 3, slots: 1, description: "While Shields > 0, +2 Pilot Strain Threshold." },
+  { name: "Fast Fingers",       cost: 2, slots: 1, description: "+1 free Toggle Incidental per round." },
+  { name: "Brawler",            cost: 3, slots: 1, description: "+1 die on Melee attacks." },
+  { name: "Quick Troubleshooter", cost: 3, slots: 1, description: "On a Power-Loss Emergency Shutdown trigger, may pick which module shut down to retoggle on." },
+  { name: "Neural Link",        cost: 7, slots: 2, description: "Physical replaces Mental for Pilot Strain damage AND a Fortitude check on Frame Component destruction." },
+  { name: "Quick Troublemaker", cost: 3, slots: 1, description: "Once per game, force an opposing robot's Emergency Shutdown check at +2 difficulty." },
+  { name: "Martial Artist",     cost: 4, slots: 1, description: "Unarmed melee = 1d6 + ½ Physical. May Parry without a melee weapon." },
+  { name: "Cool Head",          cost: 3, slots: 1, description: "Free Incidental: remove 1 Pilot Strain token from any conscious pilot in this cockpit." },
+  { name: "Override",           cost: 4, slots: 1, description: "Shutdown reboot variant: roll excess strain as bonus dice; on success +1 HP damage to acting pilot." },
+  { name: "Overclock",          cost: 5, slots: 2, description: "Shutdown reboot variant: 2× Mental d6 at 5+, once per game; +2 HP damage to acting pilot on use." },
+  { name: "Berserker",          cost: 3, slots: 1, description: "+1 die on Melee when System Strain > floor(threshold/2)." },
+  { name: "Combat Instinct",    cost: 3, slots: 1, description: "+1 die on any attack when total cockpit strain >= floor(threshold of any pilot / 2)." },
+  { name: "Coolant Manager",    cost: 3, slots: 1, description: "Free Incidental: Mental d6 vs 5+, remove 2× hits in System Strain (Heat Vent at 2×)." },
+  { name: "Commander",          cost: 5, slots: 2, description: "Force passive: highest-Mental conscious Commander on a force grants +1 Pilot Strain Threshold to all friendly pilots." },
 ];
 
 // ────────────────────────────────────────────────────────────────────
