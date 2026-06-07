@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.1.1 (2026-06-06) — robot stat persistence + additional facings
+  Version: 0.1.2 (2026-06-06) — single-force mode + editor persistence pass
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -485,7 +485,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.1.1";
+const APP_VERSION = "0.1.2";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -1069,6 +1069,9 @@ function buildBattleRobotState(robot, side) {
   return {
     robotId: robot.id,
     robotName: robot.name || "Unnamed",
+    // Alias name so action-log labels + applyDamage's recordUndo etc. that
+    // read r.name find it without falling back to "Robot".
+    name: robot.name || "Unnamed",
     side,
     silhouette: robot.silhouette || 1,
     frameStrength: robot.frameStrength || 1,
@@ -1811,6 +1814,32 @@ window.persistRobotStat = function (id, field, raw, lo, hi) {
   if (Number.isNaN(v)) return;
   r[field] = Math.max(lo, Math.min(hi, v));
   saveRobot(r);
+  render();
+};
+window.persistForceField = function (id, field, raw, asInt) {
+  const f = state.forces.find(x => x.id === Number(id));
+  if (!f) return;
+  if (asInt) {
+    const v = parseInt(raw, 10);
+    f[field] = Number.isNaN(v) ? 0 : Math.max(0, v);
+  } else {
+    f[field] = raw;
+  }
+  dbPut("forces", f);
+  render();
+};
+window.persistPilotField = function (id, field, raw) {
+  const p = state.pilots.find(x => x.id === Number(id));
+  if (!p) return;
+  p[field] = raw;
+  dbPut("pilots", p);
+  render();
+};
+window.persistEquipmentField = function (id, field, raw) {
+  const e = state.equipment.find(x => x.id === Number(id));
+  if (!e) return;
+  e[field] = raw;
+  dbPut("equipment", e);
   render();
 };
 function clampInt(id, lo, hi, dflt) {
@@ -2561,7 +2590,7 @@ let renderEquipmentEditor = function (id) {
         ${e.imageData ? `<button class="btn ghost" data-act="clear-equipment-image" data-id="${e.id}">REMOVE</button>` : ""}
       </div>
     </div>
-    <div class="field"><label>NAME</label><input id="eq-name" value="${escapeHtml(e.name)}" /></div>
+    <div class="field"><label>NAME</label><input id="eq-name" value="${escapeHtml(e.name)}" onchange="window.persistEquipmentField(${e.id}, 'name', this.value)" /></div>
     <div class="row-gap" style="flex-wrap:wrap">
       <div class="field" style="flex:1; min-width:96px"><label>SIL</label><input id="eq-sil" type="number" min="1" value="${e.silhouette || 1}" /></div>
     </div>
@@ -2719,7 +2748,7 @@ let renderPilotEditor = function (id) {
         ${p.imageData ? `<button class="btn ghost" data-act="clear-pilot-image" data-id="${p.id}">REMOVE</button>` : ""}
       </div>
     </div>
-    <div class="field"><label>NAME</label><input id="p-name" value="${escapeHtml(p.name)}" /></div>
+    <div class="field"><label>NAME</label><input id="p-name" value="${escapeHtml(p.name)}" onchange="window.persistPilotField(${p.id}, 'name', this.value)" /></div>
     <div class="row-gap" style="flex-wrap:wrap; margin-top:6px">
       <div class="field" style="flex:1; min-width:120px">
         <label>RANK</label>
@@ -2958,8 +2987,8 @@ let renderForceEditor = function (id) {
 
   return `
     <h2>FORCE // EDIT</h2>
-    <div class="field"><label>NAME</label><input id="f-name" value="${escapeHtml(f.name)}" /></div>
-    <div class="field"><label>BP CAP</label><input id="f-cap" type="number" min="0" value="${f.bpCap}" /></div>
+    <div class="field"><label>NAME</label><input id="f-name" value="${escapeHtml(f.name)}" onchange="window.persistForceField(${f.id}, 'name', this.value)" /></div>
+    <div class="field"><label>BP CAP</label><input id="f-cap" type="number" min="0" value="${f.bpCap}" onchange="window.persistForceField(${f.id}, 'bpCap', this.value, true)" /></div>
     <div class="label-small label-cyan" style="margin-top:8px">ROBOTS (${(f.robotIds || []).length})</div>
     ${robotRows}
     <button class="btn wide" data-act="force-add-robot" data-fid="${f.id}">＋ ADD ROBOT</button>
@@ -3132,10 +3161,8 @@ handlers["resume-battle"] = ({ id }) => {
 };
 
 function renderBattleOverview(b) {
-  const passed = b.passedThisRound || { P1: false, P2: false };
-  const passChip = side => passed[side]
-    ? `<span class="chip muted">✓ PASSED</span>`
-    : (b.priority === side ? `<span class="chip amber">PRIORITY</span>` : "");
+  // Single-force mode: the webapp tracks YOUR side only. Opponents stay at
+  // the table, off-app. No P2 chrome, no add-opponent affordance.
   return `
     <div class="card friendly row-between">
       <div>
@@ -3144,22 +3171,10 @@ function renderBattleOverview(b) {
       </div>
       <div class="row-gap">
         <span class="chip">ROUND ${b.round}</span>
-        ${passChip("P1")}
+        <span class="chip amber">PRIORITY</span>
       </div>
     </div>
     ${b.p1Robots.map(r => robotOverviewCard(r)).join("")}
-    ${(b.p2Robots && b.p2Robots.length > 0) ? `
-    <div class="card opposing row-between" style="margin-top:10px">
-      <div>
-        <div class="label-small label-red">OPPONENT FORCE</div>
-        <strong>${escapeHtml(b.p2ForceName || "Opponent")}</strong>
-      </div>
-      <div class="row-gap">${passChip("P2")}</div>
-    </div>
-    ${b.p2Robots.map(r => robotOverviewCard(r)).join("")}` : `
-    <div style="margin-top:10px">
-      <button class="btn ghost" data-act="add-opponent-force">+ ADD OPPONENT FORCE</button>
-    </div>`}
     <div class="row-gap" style="margin-top:14px">
       <button class="btn amber wide" data-act="pass-priority">PASS PRIORITY</button>
     </div>
@@ -4105,6 +4120,12 @@ handlers["set-decel-pts"] = ({ value }) => {
   if (!d) return;
   d.decelPts = Math.max(0, Number(value) || 0);
 };
+handlers["bump-salvo-count"] = ({ d }) => {
+  const cur = state.modal?.data?.targetCount ?? 1;
+  const next = Math.max(1, Math.min(10, cur + Number(d)));
+  if (state.modal?.data) state.modal.data.targetCount = next;
+  render();
+};
 handlers["toggle-salvo-target"] = ({ tid }) => {
   const d = state.modal?.data;
   if (!d) return;
@@ -4189,10 +4210,9 @@ let renderActionResolve = function (rid, k) {
     ${(() => {
       if (k !== "SALVO" && k !== "STRAFE" && k !== "MELEE_ASSAULT" && k !== "GRAB") return "";
       const b = state.activeBattle;
-      const targets = [...(b.p1Robots || []), ...(b.p2Robots || [])]
-        .filter(x => x.robotId !== rid && !x.destroyed);
-      if (targets.length === 0) return "";
-      const sel = new Set(state.modal?.data?.targetIds || []);
+      // Other tracked robots on the same force (friendly fire / support
+      // actions). Opponents live at the table, off-app.
+      const targets = (b.p1Robots || []).filter(x => x.robotId !== rid && !x.destroyed);
       const pilot = _pickedPilot && _pickedPilot !== "MANUAL"
         ? (state.pilots || []).find(p => {
             const cp = (r.cockpitPilots || []).find(c => `${c.componentId}:${c.moduleIndex}:${c.slotIndex}` === _pickedPilot);
@@ -4200,6 +4220,24 @@ let renderActionResolve = function (rid, k) {
           })
         : null;
       const mental = pilot?.mental || 0;
+      // No app-tracked targets → show a number picker so per-target strain
+      // still applies. User resolves identity / damage at the table.
+      if (targets.length === 0) {
+        const count = state.modal?.data?.targetCount ?? 1;
+        const mentalOver = count > mental && count > 0;
+        return `
+          <div class="label-small label-cyan" style="margin-top:10px">TARGETS</div>
+          <p style="font-size:12px; color:var(--on-surface-muted)">Opponents stay at the table. How many targets? Each costs +1 Pilot Strain.</p>
+          <div class="row-gap" style="align-items:center; gap:8px">
+            <button class="btn ghost" data-act="bump-salvo-count" data-d="-1">−</button>
+            <span class="chip">${count}</span>
+            <button class="btn ghost" data-act="bump-salvo-count" data-d="1">+</button>
+            <span style="font-size:12px; color:var(--on-surface-muted)">${count} target${count===1?'':'s'} → +${count} P-Strain</span>
+          </div>
+          ${mentalOver ? `<p class="label-small label-amber" style="margin-top:6px">⚠ ${count} > Mental ${mental} → extra Mental check required (−${count-mental} dice per attack)</p>` : ""}
+        `;
+      }
+      const sel = new Set(state.modal?.data?.targetIds || []);
       const mentalCheckNeeded = sel.size > mental && sel.size > 0;
       return `
         <div class="label-small label-cyan" style="margin-top:10px">TARGETS (${sel.size})</div>
@@ -4600,7 +4638,9 @@ handlers["resolve-action"] = ({ id, k }) => {
       }
       let pilotStrainMsg = "";
       if (actionShowsPilotPicker(k)) {
-        const salvoTargetCount = k === "SALVO" ? (state.modal?.data?.targetIds?.length || 1) : 1;
+        const salvoTargetCount = k === "SALVO"
+          ? ((state.modal?.data?.targetIds?.length || 0) || (state.modal?.data?.targetCount || 1))
+          : 1;
         const cost = actionPilotStrainCost(k, salvoTargetCount);
         if (cost > 0 && _pickedPilot && _pickedPilot !== "MANUAL") {
           const cp = (r.cockpitPilots || []).find(c =>
