@@ -13,6 +13,13 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
+  Version: 0.2.1 (2026-06-08) — Module catalog parity: added targeting_comp, melee_comp, fuel_gen, fuel_reactor,
+    component_toggle_system, component_stow_slot, multi_toggle_system, facing_rotation_system,
+    guarding_component_structure, aerodynamic_profile, system_strain_coprocessor.
+    + Computer dice chips now use module IDs (+2 dice each, not equipment name strings).
+    + fuel_powered_generator/fuel_gen burn fuel each round; auto-deactivate at 0.
+    + fuel_reactor generates +4 fuel per Pass action.
+    + validateRobot warns on multi_toggle_system installs.
   Version: 0.2.0 (2026-06-08) — UX polish: action tabs, comp breadcrumb, fuel/cap display fixes, priority chip
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
@@ -488,7 +495,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.2.1";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -542,6 +549,18 @@ let MODULES = [
   { id: "leg_attack_system",   name: "Leg/Head Attack System", category: "Frame",  weight: 1, power: 0, definitionLimit: ["LEG","HEAD"], description: "Lets this component melee like an arm." },
   { id: "inertia_driver",      name: "Inertia Driver",       category: "Frame",    weight: 1, power: 0, definitionLimit: ["ARM"], description: "Pre-melee fuel spend → bonus dice." },
   { id: "coprocessor",         name: "Coprocessor",          category: "Frame",    weight: 1, power: -2, definitionLimit: ["CORE","HEAD","UTILITY"], description: "+1 System Strain Threshold; multiple stack.", coprocessorBonus: 1, stackable: true, maxCopies: -1 },
+  // system_strain_coprocessor is the canonical Android ID (actionTokenBonus); coprocessor is the legacy webapp alias.
+  { id: "system_strain_coprocessor", name: "System Strain Coprocessor", category: "Frame", weight: 0, power: -10, definitionLimit: ["CORE","HEAD","ARM","LEG"], description: "+1 System Strain Threshold. Toggleable; stackable.", actionTokenBonus: 1, toggleable: true, stackable: true, maxCopies: -1 },
+  { id: "targeting_comp",     name: "Targeting Computer",   category: "Frame",    weight: 0, power: -3, definitionLimit: ["CORE","HEAD"], description: "+2 dice to Ranged Attack checks." },
+  { id: "melee_comp",         name: "Melee Assistance Computer", category: "Frame", weight: 0, power: -4, definitionLimit: ["CORE","HEAD"], description: "+2 dice to Melee Attack checks." },
+  { id: "fuel_gen",           name: "Fuel-powered Generator", category: "Power",  weight: 2, power: 10,  definitionLimit: [], description: "+10 Power, burns 3 fuel per round. Toggleable.", toggleable: true, fuelConsumption: 3 },
+  { id: "fuel_reactor",       name: "Fuel-Generating Reactor", category: "Power", weight: 3, power: 22,  definitionLimit: ["CORE"], description: "+22 Power. Generates 4 fuel per Pass action up to tank max." },
+  { id: "component_toggle_system", name: "Component Toggle System", category: "Frame", weight: 0, power: 0, definitionLimit: ["HEAD","ARM","LEG","UTILITY"], description: "Allows this component to be toggled on/off. Resolves at the table.", toggleable: true },
+  { id: "component_stow_slot", name: "Component Stow Slot", category: "Frame",   weight: 0, power: 0,  definitionLimit: ["CORE","UTILITY"], description: "Internal stow slot for a toggled-off component. Resolves at the table." },
+  { id: "multi_toggle_system", name: "Multi-Toggle System",  category: "Frame",  weight: 1, power: -2,  definitionLimit: ["CORE","HEAD"], description: "Converts 1 Toggle action into up to 3 simultaneous Toggles. Resolves at the table — write down your assignments." },
+  { id: "facing_rotation_system", name: "Facing Rotation System", category: "Mobility", weight: 3, power: -3, definitionLimit: ["CORE","HEAD"], description: "Rotates facings dynamically via Toggle action. Resolves at the table.", toggleable: true },
+  { id: "guarding_component_structure", name: "Guarding Component Structure", category: "Defense", weight: 0, power: -4, definitionLimit: ["UTILITY"], description: "This component guards another; must be destroyed first. Resolves at the table." },
+  { id: "aerodynamic_profile", name: "Aerodynamic Profile Definer", category: "Mobility", weight: 0, power: -3, definitionLimit: [], description: "Glide modules count ×2 when vector die matches facing die. Toggleable.", toggleable: true },
 ];
 let MODULES_BY_ID = Object.fromEntries(MODULES.map(m => [m.id, m]));
 
@@ -1005,7 +1024,15 @@ function validateRobot(robot) {
       issues.push(`${label}: needs ${required} additional facing(s) selected (has ${valid.length})`);
     }
   }
-  return { isValid: issues.length === 0, issues };
+  // Advisory notes are non-blocking — they appear in the issues list
+  // alongside blockers but isValid is computed on blockers only so the
+  // robot saves clean. Multi-Toggle System is "valid but needs table
+  // bookkeeping" — flagging is informational, not gating.
+  const advisories = [];
+  const multiToggleCount = ids.filter(id => id === "multi_toggle_system").length;
+  if (multiToggleCount > 0)
+    advisories.push(`Multi-Toggle System: ${multiToggleCount} slot(s) — resolve assignments at the table.`);
+  return { isValid: issues.length === 0, issues: issues.concat(advisories), advisories };
 }
 function calcEffectiveSil(robot, statuses) {
   let sil = robot.silhouette || 1;
@@ -3297,6 +3324,19 @@ function findBattleRobot(b, rid) {
   if (p1) return p1;
   return (b?.p2Robots || []).find(x => x.robotId === n || x.robotId === rid);
 }
+// Deducts fuel for active fuel_gen / fuel_powered_generator modules each round.
+// Auto-deactivates if fuel hits 0 while the generator is still on.
+function applyRoundFuelBurn(robot) {
+  for (const c of robot.components || []) {
+    for (const m of c.modules || []) {
+      const def = MODULES_BY_ID[m.moduleId];
+      if (!def || !def.fuelConsumption) continue;
+      if (!(m.toggledOn ?? true)) continue;
+      robot.fuelCurrent = Math.max(0, (robot.fuelCurrent || 0) - def.fuelConsumption);
+      if (robot.fuelCurrent === 0) m.toggledOn = false;
+    }
+  }
+}
 function hoverFloorFor(r) {
   // Returns 1 if any hover_system module is toggled ON, else 0.
   return r.components.some(c => c.modules.some(m => m.moduleId === "hover_system" && (m.toggledOn ?? true))) ? 1 : 0;
@@ -3317,10 +3357,15 @@ handlers["pass-priority"] = ({ side } = {}) => {
   b.passedThisRound = b.passedThisRound || { P1: false, P2: false };
   const passingSide = side || b.priority || "P1";
   const sideRobots = passingSide === "P1" ? (b.p1Robots || []) : (b.p2Robots || []);
-  // Pass clears Pilot Strain per L220.
+  // Pass clears Pilot Strain per L220. fuel_reactor generates +4 fuel per Pass (rulebook).
   for (const r of sideRobots) {
     r.pilotTokens = 0;
     r.cockpitPilots = (r.cockpitPilots || []).map(p => ({ ...p, pilotStrain: 0 }));
+    const hasFuelReactor = r.components?.some(c => c.modules?.some(m => m.moduleId === "fuel_reactor"));
+    if (hasFuelReactor) {
+      const fuelMax = calcFuelMax(r) || 0;
+      r.fuelCurrent = Math.min(fuelMax, (r.fuelCurrent || 0) + 4);
+    }
   }
   b.passedThisRound[passingSide] = true;
   const hasP2 = (b.p2Robots || []).length > 0;
@@ -3337,6 +3382,7 @@ handlers["pass-priority"] = ({ side } = {}) => {
       robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
       // Shutdown-this-round clears at round advance; robot can act again.
       if (robot.shutdown) robot.shutdown = false;
+      applyRoundFuelBurn(robot);
     }
     showToast(`Round ${b.round} begins.`);
   } else {
@@ -3358,6 +3404,7 @@ handlers["round-next"] = () => {
     const cap = robot.capacitorsMax ?? 0;
     robot.capacitorsRemaining = Math.min(cap, (robot.capacitorsRemaining || 0) + 1);
     if (robot.shutdown) robot.shutdown = false;
+    applyRoundFuelBurn(robot);
     // Fast Fingers: grant 1 free Toggle Incidental per Fast Fingers pilot per round.
     const ffCount = (robot.cockpitPilots || [])
       .filter(cp => !cp.isAi && !cp.isKO && cp.pilotId)
@@ -4834,14 +4881,14 @@ function rollerComputeChips(r, rollKind) {
   if (openAirCockpits > 0 && (rollKind === "RANGED" || rollKind === "PHYSICAL")) {
     chips.push({ id: "openair", label: `+${openAirCockpits * 3} OPEN-AIR`, dice: openAirCockpits * 3, hint: "+3 dice per open-air cockpit on Maneuver / Ranged" });
   }
-  // Mount-point combat computers (modeled as keyword on equipment — count their presence).
-  const targetingComps = r.components.flatMap(c => c.equipment).filter(e => (e.name || "").toLowerCase().includes("targeting comp")).length;
+  // Combat computers: detected by module ID, not equipment name strings.
+  const targetingComps = count("targeting_comp");
   if (targetingComps > 0 && rollKind === "RANGED") {
-    chips.push({ id: "targeting", label: `+${targetingComps} TARGETING`, dice: targetingComps, hint: "+1 die per Targeting Computer for Ranged" });
+    chips.push({ id: "targeting", label: `+${targetingComps * 2} TARGETING`, dice: targetingComps * 2, hint: "+2 dice per Targeting Computer for Ranged" });
   }
-  const meleeComps = r.components.flatMap(c => c.equipment).filter(e => (e.name || "").toLowerCase().includes("melee comp")).length;
+  const meleeComps = count("melee_comp");
   if (meleeComps > 0 && rollKind === "MELEE") {
-    chips.push({ id: "melee", label: `+${meleeComps} MELEE COMP`, dice: meleeComps, hint: "+1 die per Melee Computer" });
+    chips.push({ id: "melee", label: `+${meleeComps * 2} MELEE COMP`, dice: meleeComps * 2, hint: "+2 dice per Melee Computer" });
   }
   // CROUCHED on Grabbed weapons (rulebook L264) → +2 dice on Ranged.
   if ((r.statusEffects || []).includes("CROUCHED") && rollKind === "RANGED") {
