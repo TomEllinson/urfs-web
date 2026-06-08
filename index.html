@@ -16,7 +16,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.2.2 (2026-06-08) — ZOID CORE OS paint job: hull palette, Saira Condensed/Space Mono/JetBrains Mono
+  Version: 0.2.3 (2026-06-08) — equipment keyword conflict + prerequisite validation
     typography, chamfered chips, register-bracket cards, phosphor amber + comm cyan two-channel ink.
   Version: 0.2.1 (2026-06-08) — Module catalog parity: added targeting_comp, melee_comp, fuel_gen, fuel_reactor,
     component_toggle_system, component_stow_slot, multi_toggle_system, facing_rotation_system,
@@ -697,7 +697,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.2";
+const APP_VERSION = "0.2.3";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -2790,6 +2790,73 @@ let KEYWORDS = [
   "Indirect", "Module Slot",
 ];
 
+// 0.2.3: keyword-on-keyword constraints from Android KeywordValidator.kt
+// + packs/urfs-core/keywords.json. Three relations per keyword:
+//   requires    — the listed keyword (or any in requiresAny) must already
+//                 be on the equipment before this one can be added
+//   requiresAny — at least one of these must be present (OR semantics)
+//   excludes    — bidirectional mutual exclusion
+// Tom 2026-06-08: webapp pre-0.2.3 let you put Extended Magazine on a sword.
+const KEYWORD_RULES = {
+  "Edge":              { requires: "Melee" },
+  "Energy Edge":       { requires: "Edge", excludes: ["Energy Weapon"] },
+  "Energy Weapon":     { requiresAny: ["Melee", "Ranged"], excludes: ["Energy Edge"] },
+  "Extended Magazine": { requires: "Limited Ammo" },
+  "Reach Extender":    { requires: "Melee" },
+  "Auto":              { requires: "Ranged" },
+  "Scatter":           { requires: "Ranged" },
+  "Limited Ammo":      { requires: "Ranged" },
+  "Long Range":        { requires: "Ranged" },
+  "Extended Range":    { requires: "Ranged" },
+  "Explosive":         { requires: "Ranged" },
+  "Burst":             { requires: "Ranged" },
+  "Indirect":          { requires: "Ranged" },
+  "Kinetic":           { requires: "Ranged" },
+  "Penetrating":       { requires: "Ranged" },
+  "Two-handed":        { requiresAny: ["Melee", "Ranged"] },
+  "Overcharged":       { requiresAny: ["Melee", "Ranged"] },
+  "Inertia Additive":  { requires: "Melee" },
+  "Extending Grip":    { requires: "Mount Point" },
+  "Corded":            { requires: "Tethered" },
+};
+
+// Returns { ok: true } when adding `kw` to `currentKeywords` would be valid,
+// otherwise { ok: false, reason } with a one-sentence why-not.
+function canAddKeyword(kw, currentKeywords) {
+  const rule = KEYWORD_RULES[kw];
+  if (!rule) return { ok: true };
+  if (rule.requires && !currentKeywords.includes(rule.requires)) {
+    return { ok: false, reason: `${kw} requires ${rule.requires}.` };
+  }
+  if (rule.requiresAny && !rule.requiresAny.some(r => currentKeywords.includes(r))) {
+    return { ok: false, reason: `${kw} requires one of: ${rule.requiresAny.join(" / ")}.` };
+  }
+  if (rule.excludes) {
+    const conflict = rule.excludes.find(x => currentKeywords.includes(x));
+    if (conflict) return { ok: false, reason: `${kw} conflicts with ${conflict}.` };
+  }
+  return { ok: true };
+}
+
+// Returns true if removing `kw` would orphan a dependent already on the
+// equipment (e.g. removing Limited Ammo while Extended Magazine is on).
+function dependentOnKeyword(kw, currentKeywords) {
+  return currentKeywords.filter(other => {
+    if (other === kw) return false;
+    const rule = KEYWORD_RULES[other];
+    if (!rule) return false;
+    if (rule.requires === kw) return true;
+    if (rule.requiresAny && rule.requiresAny.includes(kw)) {
+      const remaining = rule.requiresAny.filter(r => r !== kw && currentKeywords.includes(r));
+      return remaining.length === 0;
+    }
+    return false;
+  });
+}
+
+// Max keyword count = 3 × silhouette per rulebook L680.
+function maxKeywordsFor(silhouette) { return 3 * (silhouette || 1); }
+
 // Snapshot the built-in data as the urfs-core pack definition.
 // This is captured once at parse time so rebuildContent can restore it.
 const _CORE_MODULES = MODULES.slice();
@@ -2827,9 +2894,20 @@ let renderEquipmentEditor = function (id) {
       <div class="field" style="flex:1; min-width:96px"><label>SIL</label><input id="eq-sil" type="number" min="1" value="${e.silhouette || 1}" /></div>
     </div>
     <div class="field">
-      <label>KEYWORDS (tap to toggle)</label>
+      <label>KEYWORDS <span style="font-weight:normal;color:var(--frame-dim, var(--on-surface-muted));font-size:11px">(${(e.keywords || []).length}/${maxKeywordsFor(e.silhouette)} · max 3 × sil)</span></label>
       <div class="row-gap" style="flex-wrap:wrap">
-        ${KEYWORDS.map(k => `<span class="chip ${(e.keywords || []).includes(k) ? "" : "muted"}" data-act="toggle-keyword" data-id="${e.id}" data-k="${k}">${k}</span>`).join("")}
+        ${KEYWORDS.map(k => {
+          const cur = e.keywords || [];
+          const has = cur.includes(k);
+          const check = has ? { ok: true } : canAddKeyword(k, cur);
+          const atCap = !has && cur.length >= maxKeywordsFor(e.silhouette);
+          const blocked = !has && (!check.ok || atCap);
+          const reason = !check.ok ? check.reason : (atCap ? `Cap: ${maxKeywordsFor(e.silhouette)} keywords at SIL ${e.silhouette}.` : null);
+          const klass = has ? "" : (blocked ? "muted" : "muted");
+          const styleX = blocked ? " style=\"opacity:0.35;cursor:not-allowed\"" : "";
+          const titleX = reason ? ` title="${escapeHtml(reason)}"` : "";
+          return `<span class="chip ${klass}"${styleX}${titleX} data-act="toggle-keyword" data-id="${e.id}" data-k="${k}">${k}</span>`;
+        }).join("")}
       </div>
     </div>
     <div style="margin-top:12px; padding:10px; background:rgba(77,208,225,0.08); border-radius:var(--bevel)">
@@ -2860,8 +2938,29 @@ handlers["toggle-keyword"] = ({ id, k }) => {
   if (silEl) e.silhouette = parseInt(silEl.value, 10) || 1;
   if (notesEl) e.notes = notesEl.value || "";
   e.keywords = e.keywords || [];
-  if (e.keywords.includes(k)) e.keywords = e.keywords.filter(x => x !== k);
-  else e.keywords.push(k);
+  const has = e.keywords.includes(k);
+  if (has) {
+    // 0.2.3: refuse to remove a keyword that would orphan dependents
+    // (e.g. removing Limited Ammo while Extended Magazine is still on).
+    // Show a toast naming the dependents so the player removes them
+    // first. Mount Point exclusion is handled below.
+    const dependents = dependentOnKeyword(k, e.keywords);
+    if (dependents.length > 0) {
+      showToast(`Remove ${dependents.join(", ")} first — ${k} is required for ${dependents.length > 1 ? "them" : "it"}.`);
+      return;
+    }
+    e.keywords = e.keywords.filter(x => x !== k);
+  } else {
+    // 0.2.3: gate the add on the canonical Android KeywordValidator rules
+    // + the 3 × silhouette cap.
+    const check = canAddKeyword(k, e.keywords);
+    if (!check.ok) { showToast(check.reason); return; }
+    if (e.keywords.length >= maxKeywordsFor(e.silhouette)) {
+      showToast(`Keyword cap reached (${maxKeywordsFor(e.silhouette)} at SIL ${e.silhouette}). Raise SIL or remove one first.`);
+      return;
+    }
+    e.keywords.push(k);
+  }
   if (k === "Mount Point") e.mountPoint = e.keywords.includes(k);
   dbPut("equipment", e);
   render();
