@@ -13,7 +13,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.1.3 (2026-06-07) — talent stat reqs reverted to match Android
+  Version: 0.2.0 (2026-06-08) — UX polish: action tabs, comp breadcrumb, fuel/cap display fixes, priority chip
     + JSON export/import (top of Garage). Round-trips everything.
     + Image picker on robot editor (data URL, fully local).
     + Dice roller with applicable bonus chips per robot/context.
@@ -133,6 +133,9 @@
   .chip.red { background: rgba(239, 83, 80, 0.15); color: var(--red); border-color: rgba(239, 83, 80, 0.35); }
   .chip.green { background: rgba(78, 206, 113, 0.15); color: var(--green); border-color: rgba(78, 206, 113, 0.35); }
   .chip.muted { background: rgba(141, 160, 182, 0.12); color: var(--on-surface-muted); border-color: rgba(141, 160, 182, 0.25); }
+  /* 0.2.0: chip.primary used for active action-bucket tab — visually
+     promote it above the resting cyan glow with a stronger fill. */
+  .chip.primary { background: rgba(77, 208, 225, 0.32); border-color: rgba(77, 208, 225, 0.70); color: #d6f6fb; }
   .row-between { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .row-gap { display: flex; align-items: center; gap: 8px; }
   .label-small {
@@ -485,7 +488,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.1.3";
+const APP_VERSION = "0.2.0";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -3171,7 +3174,9 @@ function renderBattleOverview(b) {
       </div>
       <div class="row-gap">
         <span class="chip">ROUND ${b.round}</span>
-        <span class="chip amber">PRIORITY</span>
+        ${(b.passedThisRound || {}).P1
+          ? `<span class="chip muted">PASSED — opp's turn</span>`
+          : `<span class="chip amber">YOUR TURN</span>`}
       </div>
     </div>
     ${b.p1Robots.map(r => robotOverviewCard(r)).join("")}
@@ -3256,7 +3261,7 @@ function robotOverviewCard(r) {
       </div>
       <div class="stat-grid" style="margin-top:8px">
         <div class="stat-cell ${armorCurrent < armorMax ? 'warn' : 'ok'}"><span class="lbl">ARM</span><span class="val">${armorCurrent}/${armorMax}</span></div>
-        <div class="stat-cell ${r.fuelCurrent < r.fuelMax/2 ? 'warn' : 'ok'}"><span class="lbl">FUEL</span><span class="val">${r.fuelCurrent}/${r.fuelMax}</span></div>
+        <div class="stat-cell ${r.fuelMax > 0 && r.fuelCurrent < r.fuelMax * 0.25 ? 'warn' : 'ok'}"><span class="lbl">FUEL</span><span class="val">${r.fuelMax === 0 ? "—" : `${r.fuelCurrent}/${r.fuelMax}`}</span></div>
         <div class="stat-cell ok"><span class="lbl">SHLD</span><span class="val">${r.shieldsCurrent}/${r.shieldsMax}</span></div>
         <div class="stat-cell ${r.systemStrain > r.systemStrainThreshold ? 'over' : 'ok'}"><span class="lbl">STR</span><span class="val">${r.systemStrain}/${r.systemStrainThreshold}</span></div>
       </div>
@@ -3422,7 +3427,7 @@ function renderPerRobotBattle(b, rid) {
       </div>
       <div class="stat-grid" style="margin-top:8px">
         <div class="stat-cell ${armorCurrent < armorMax ? 'warn' : 'ok'}" data-act="show-armor" data-id="${r.robotId}"><span class="lbl">ARMOR</span><span class="val">${armorCurrent}/${armorMax}</span></div>
-        <div class="stat-cell ${r.fuelCurrent < r.fuelMax/2 ? 'warn' : 'ok'}" data-act="show-fuel" data-id="${r.robotId}"><span class="lbl">FUEL</span><span class="val">${r.fuelCurrent}/${r.fuelMax}</span></div>
+        <div class="stat-cell ${r.fuelMax > 0 && r.fuelCurrent < r.fuelMax * 0.25 ? 'warn' : 'ok'}" data-act="show-fuel" data-id="${r.robotId}"><span class="lbl">FUEL</span><span class="val">${r.fuelMax === 0 ? "—" : `${r.fuelCurrent}/${r.fuelMax}`}</span></div>
         <div class="stat-cell ok" data-act="show-shields" data-id="${r.robotId}"><span class="lbl">SHLD</span><span class="val">${r.shieldsCurrent}/${r.shieldsMax}</span></div>
         <div class="stat-cell" data-act="show-pilots" data-id="${r.robotId}">
           <span class="lbl">P TOK</span>
@@ -3431,7 +3436,7 @@ function renderPerRobotBattle(b, rid) {
       </div>
       <div class="stat-grid" style="margin-top:6px">
         <div class="stat-cell ${r.systemStrain > r.systemStrainThreshold ? 'over' : 'ok'}" data-act="show-strain" data-id="${r.robotId}"><span class="lbl">STR</span><span class="val">${r.systemStrain}/${r.systemStrainThreshold}</span></div>
-        <div class="stat-cell ok" data-act="show-capacitors" data-id="${r.robotId}"><span class="lbl">CAP</span><span class="val">${r.capacitorsRemaining || "—"}</span></div>
+        <div class="stat-cell ok" data-act="show-capacitors" data-id="${r.robotId}"><span class="lbl">CAP</span><span class="val">${(r.capacitorsMax ?? 0) === 0 ? "—" : `${r.capacitorsRemaining ?? 0}/${r.capacitorsMax}`}</span></div>
         <div class="stat-cell ${(r.gspdSpent || 0) >= (r.groundSpeed || 0) && (r.groundSpeed || 0) > 0 ? "warn" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">GSPD</span><span class="val">${r.groundSpeed ? `${(r.groundSpeed - (r.gspdSpent || 0))}/${r.groundSpeed}` : "—"}</span></div>
         <div class="stat-cell ${r.boostPower > 0 ? "cyan" : "ok"}" data-act="show-move" data-id="${r.robotId}"><span class="lbl">BOOST</span><span class="val">${r.boostPower || "—"}</span></div>
       </div>
@@ -3519,29 +3524,40 @@ function renderActionSheet(r) {
   const budget = r.actionBudget || { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
   const bucketSpent = b => (b === "primary" && budget.primaryUsed >= 1)
                        || (b === "reaction" && budget.reactionsUsed >= 2);
-  return ["primary","reaction","incidental"].map(bucket => `
-    <div class="bucket ${bucket} open">
-      <div class="header"><span class="ic">${bucketIcon(bucket)}</span>${bucket.toUpperCase()}</div>
+  const activeBucket = state._actionBucketTab || "primary";
+  const tabRow = ["primary","reaction","incidental"].map(bucket => {
+    const isActive = bucket === activeBucket;
+    return `<button class="chip${isActive ? " primary" : ""}" style="flex:1;cursor:pointer;border:none" data-act="set-action-tab" data-bucket="${bucket}">${bucketIcon(bucket)} ${bucket.toUpperCase()}</button>`;
+  }).join("");
+  const items = groups[activeBucket].map(([k, a]) => {
+    const spent = k !== "PASS" && bucketSpent(activeBucket);
+    const ruleLineMatch = a.rules && a.rules.match(/\(L(\d+)\)/);
+    const ruleLine = ruleLineMatch ? Number(ruleLineMatch[1]) : null;
+    return `
+    <div style="display:flex; align-items:stretch; gap:4px">
+      <button class="action-btn" style="flex:1" data-act="open-action" data-id="${r.robotId}" data-k="${k}" ${spent ? "disabled" : ""}>
+        <span class="nm">${a.label}</span>
+        <span class="hint">${escapeHtml(a.brief)}</span>
+        ${spent ? `<span class="reason">${activeBucket.toUpperCase()} SPENT</span>` : ""}
+      </button>
+      ${ruleLine ? `<button style="background:var(--surface-1);border:1px solid rgba(77,208,225,0.20);border-radius:4px;padding:0 8px;color:var(--on-surface-muted);font-size:11px;font-weight:700;flex-shrink:0" data-act="open-rulebook" data-line="${ruleLine}" title="Rulebook L${ruleLine}">?</button>` : ""}
+    </div>`;
+  }).join("");
+  return `
+    <div class="bucket open">
+      <div style="display:flex; gap:4px; padding:6px 10px 4px">
+        ${tabRow}
+      </div>
       <div class="actions-list">
-        ${groups[bucket].map(([k, a]) => {
-          // PASS is always available — it ends the round even after primary is spent.
-          const spent = k !== "PASS" && bucketSpent(bucket);
-          const ruleLineMatch = a.rules && a.rules.match(/\(L(\d+)\)/);
-          const ruleLine = ruleLineMatch ? Number(ruleLineMatch[1]) : null;
-          return `
-          <div style="display:flex; align-items:stretch; gap:4px">
-            <button class="action-btn" style="flex:1" data-act="open-action" data-id="${r.robotId}" data-k="${k}" ${spent ? "disabled" : ""}>
-              <span class="nm">${a.label}</span>
-              <span class="hint">${escapeHtml(a.brief)}</span>
-              ${spent ? `<span class="reason">${bucket.toUpperCase()} SPENT</span>` : ""}
-            </button>
-            ${ruleLine ? `<button style="background:var(--surface-1);border:1px solid rgba(77,208,225,0.20);border-radius:4px;padding:0 8px;color:var(--on-surface-muted);font-size:11px;font-weight:700;flex-shrink:0" data-act="open-rulebook" data-line="${ruleLine}" title="Rulebook L${ruleLine}">?</button>` : ""}
-          </div>`;
-        }).join("")}
+        ${items}
       </div>
     </div>
-  `).join("");
+  `;
 }
+handlers["set-action-tab"] = ({ bucket }) => {
+  state._actionBucketTab = bucket;
+  render();
+};
 // Returns a Set of talent names held by at least one conscious (non-KO) cockpit pilot.
 function robotConsciousTalents(r) {
   const s = new Set();
@@ -5297,6 +5313,7 @@ let renderCompSheet = function (rid, cid) {
   const c = r?.components.find(x => x.componentId === cid);
   if (!c) return "<p>?</p>";
   return `
+    <div class="label-small" style="margin-bottom:6px;opacity:0.6">← ${escapeHtml(r.robotName)}</div>
     <h2>${escapeHtml(c.name)}</h2>
     <div class="row-gap">
       <span class="chip">${c.definition}</span>
@@ -5354,8 +5371,16 @@ let renderCompSheet = function (rid, cid) {
         </div>`;
       }).join("")}
     ` : ""}
-    <div class="actions"><button class="btn ghost" data-act="modal-close">DONE</button></div>
+    <div class="actions"><button class="btn ghost" data-act="comp-sheet-done">DONE</button></div>
   `;
+};
+handlers["comp-sheet-done"] = () => {
+  closeModal();
+  // Scroll schematic back into view so user lands with context, not at page top.
+  requestAnimationFrame(() => {
+    const el = document.querySelector(".schematic-wrap");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 };
 handlers["bump-comp-hp"] = ({ id, cid, d }) => {
   const rid = Number(id);
