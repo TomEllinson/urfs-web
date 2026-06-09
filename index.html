@@ -16,7 +16,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.2.6 (2026-06-09) — socket-facing picker on internal/external/swivel weapon socket install
+  Version: 0.2.7 (2026-06-09) — armor health bars on schematic component nodes
     typography, chamfered chips, register-bracket cards, phosphor amber + comm cyan two-channel ink.
   Version: 0.2.1 (2026-06-08) — Module catalog parity: added targeting_comp, melee_comp, fuel_gen, fuel_reactor,
     component_toggle_system, component_stow_slot, multi_toggle_system, facing_rotation_system,
@@ -600,6 +600,25 @@
   .sch-node.bad  { border-color: var(--critical-red); }
   .sch-node.dead { border-color: var(--critical-red); background: rgba(230,69,69,0.16); }
   .sch-node.selected { outline: 2px solid var(--comm-cyan); outline-offset: 1px; }
+  /* 0.2.7: armor bar at the top of every schematic node — quick glance
+     read for "is this component armored / how much / how damaged".
+     Fill color tier follows the parent .warn / .bad / .dead modifiers. */
+  .sch-node .armor-bar {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 4px; background: rgba(58,77,106,0.45);
+    border-bottom: 1px solid rgba(0,0,0,0.35);
+    overflow: hidden;
+  }
+  .sch-node .armor-bar.armor-empty {
+    background: rgba(90,111,137,0.30);
+  }
+  .sch-node .armor-fill {
+    height: 100%; background: var(--comm-cyan);
+    transition: width 200ms ease-out;
+  }
+  .sch-node.warn .armor-fill { background: var(--phosphor-amber); }
+  .sch-node.bad  .armor-fill { background: var(--critical-red); }
+  .sch-node.dead .armor-fill { background: var(--critical-red); width: 0% !important; }
   .sch-node .def {
     font-family: "Space Mono", ui-monospace, monospace;
     font-size: 8px; font-weight: 400; letter-spacing: 0.06em;
@@ -709,7 +728,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.6";
+const APP_VERSION = "0.2.7";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -6111,10 +6130,22 @@ function renderSchematic(components, opts) {
         ${escapeHtml(c.facing || "?")}
       </div>
     `;
+    // 0.2.7: armor health bar at top of each component node. Width
+    // proportional to current/max armor; color tier follows the
+    // .bad/.warn coloration on the parent node so it shifts amber →
+    // red as armor drops. Unarmored components (armorMax 0) show a
+    // thin dim track so the player notices the gap at a glance.
+    const armorMax = c._armorMax || 0;
+    const armorCur = c._armorCurrent || 0;
+    const armorRatio = armorMax > 0 ? Math.max(0, Math.min(1, armorCur / armorMax)) : 0;
+    const armorBar = armorMax > 0
+      ? `<div class="armor-bar"><div class="armor-fill" style="width:${(armorRatio * 100).toFixed(1)}%"></div></div>`
+      : `<div class="armor-bar armor-empty"></div>`;
     return `
       ${labelChip}
       <div class="${cls}" style="left:${left}px; top:${top}px"
            data-act="${o.tapAct}" data-id="${c._id}" data-rid="${o.rid || ""}">
+        ${armorBar}
         <div class="def">${defAbbr2(c.definition)}</div>
         <div class="nm">${escapeHtml(c.name)}</div>
         <div class="hp">${escapeHtml(c._hpLabel || "")}</div>
@@ -6137,6 +6168,17 @@ function defAbbr2(d) {
 
 // ─ Adapters: normalize a build-shape robot or a battle robot to the
 //   schematic data contract.
+// 0.2.7: build-time armor max per component — sum each module's
+// armorMultiplier × robot silhouette. Mirrors buildBattleRobotState's
+// hpMax calc at line ~1078 so build-time and battle reads agree.
+function componentArmorMax(c, silhouette) {
+  let a = 0;
+  for (const m of (c.modules || [])) {
+    const def = MODULES_BY_ID[m.moduleId];
+    if (def?.armorMultiplier) a += def.armorMultiplier * (silhouette || 1);
+  }
+  return a;
+}
 function robotToSchemNodes(robot) {
   // Build shape uses tempId + parentTempId. Inferred chain: every
   // non-core component without an explicit parent attaches to the
@@ -6144,6 +6186,7 @@ function robotToSchemNodes(robot) {
   const core = (robot.components || []).find(c => c.definition === "CORE");
   return (robot.components || []).map(c => {
     const isCore = c === core;
+    const armorMax = componentArmorMax(c, robot.silhouette);
     return {
       _id: c.tempId,
       _parentId: isCore ? null : (c.parentTempId ?? (core ? core.tempId : null)),
@@ -6151,8 +6194,10 @@ function robotToSchemNodes(robot) {
       facing: c.facing,
       name: c.name || c.definition,
       _hpRatio: 1,
+      _armorMax: armorMax,
+      _armorCurrent: armorMax,
       _destroyed: false,
-      _hpLabel: "",
+      _hpLabel: armorMax > 0 ? `${armorMax}/${armorMax}` : "0 ARM",
     };
   });
 }
@@ -6161,7 +6206,7 @@ function battleRobotToSchemNodes(r) {
   return r.components.map(c => {
     const isCore = c === core;
     const ratio = c.hpMax > 0 ? c.hpCurrent / c.hpMax : 1;
-    const label = c.isDestroyed ? "DEAD" : c.hpMax === 0 ? "—" : `${c.hpCurrent}/${c.hpMax}`;
+    const label = c.isDestroyed ? "DEAD" : c.hpMax === 0 ? "0 ARM" : `${c.hpCurrent}/${c.hpMax}`;
     return {
       _id: c.componentId,
       _parentId: isCore ? null : (c.parentComponentId ?? (core ? core.componentId : null)),
@@ -6169,6 +6214,8 @@ function battleRobotToSchemNodes(r) {
       facing: c.facing,
       name: c.name || c.definition,
       _hpRatio: ratio,
+      _armorMax: c.hpMax || 0,
+      _armorCurrent: c.hpCurrent || 0,
       _destroyed: !!c.isDestroyed,
       _hpLabel: label,
     };
