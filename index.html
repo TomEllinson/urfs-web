@@ -16,7 +16,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.2.3 (2026-06-08) — equipment keyword conflict + prerequisite validation
+  Version: 0.2.4 (2026-06-09) — frame stat caps: STR/DUR uncapped, MAT 1-4
     typography, chamfered chips, register-bracket cards, phosphor amber + comm cyan two-channel ink.
   Version: 0.2.1 (2026-06-08) — Module catalog parity: added targeting_comp, melee_comp, fuel_gen, fuel_reactor,
     component_toggle_system, component_stow_slot, multi_toggle_system, facing_rotation_system,
@@ -697,7 +697,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.3";
+const APP_VERSION = "0.2.4";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -1935,15 +1935,15 @@ let renderRobotEditor = function (id) {
       </div>
       <div class="field" style="flex:1">
         <label>FS</label>
-        <input type="number" min="1" max="6" id="robot-fs" value="${r.frameStrength}" onchange="window.persistRobotStat(${r.id}, 'frameStrength', this.value, 1, 6)" />
+        <input type="number" min="1" id="robot-fs" value="${r.frameStrength}" onchange="window.persistRobotStat(${r.id}, 'frameStrength', this.value, 1)" />
       </div>
       <div class="field" style="flex:1">
         <label>FD</label>
-        <input type="number" min="1" max="6" id="robot-fd" value="${r.frameDurability}" onchange="window.persistRobotStat(${r.id}, 'frameDurability', this.value, 1, 6)" />
+        <input type="number" min="1" id="robot-fd" value="${r.frameDurability}" onchange="window.persistRobotStat(${r.id}, 'frameDurability', this.value, 1)" />
       </div>
       <div class="field" style="flex:1">
         <label>FM</label>
-        <input type="number" min="1" max="6" id="robot-fm" value="${r.frameMaterial}" onchange="window.persistRobotStat(${r.id}, 'frameMaterial', this.value, 1, 6)" />
+        <input type="number" min="1" max="4" id="robot-fm" value="${r.frameMaterial}" onchange="window.persistRobotStat(${r.id}, 'frameMaterial', this.value, 1, 4)" />
       </div>
     </div>
     <div class="row-gap" style="margin-bottom:10px; flex-wrap:wrap; gap:6px; padding:8px; background:var(--surface-1); border-radius:var(--bevel)">
@@ -2019,9 +2019,11 @@ handlers["modal-close"] = () => {
       const nm = document.getElementById("robot-name")?.value;
       if (nm != null) r.name = nm;
       r.silhouette = clampInt("robot-sil", 1, 10, r.silhouette);
-      r.frameStrength = clampInt("robot-fs", 1, 6, r.frameStrength);
-      r.frameDurability = clampInt("robot-fd", 1, 6, r.frameDurability);
-      r.frameMaterial = clampInt("robot-fm", 1, 6, r.frameMaterial);
+      // STR / DUR uncapped per Android FrameStatsStep.kt (>=1 only).
+      // MAT is 1-4 per rulebook + Android.
+      r.frameStrength = clampInt("robot-fs", 1, 999, r.frameStrength);
+      r.frameDurability = clampInt("robot-fd", 1, 999, r.frameDurability);
+      r.frameMaterial = clampInt("robot-fm", 1, 4, r.frameMaterial);
       saveRobot(r);
     }
   }
@@ -2044,7 +2046,9 @@ window.persistRobotStat = function (id, field, raw, lo, hi) {
   if (!r) return;
   const v = parseInt(raw, 10);
   if (Number.isNaN(v)) return;
-  r[field] = Math.max(lo, Math.min(hi, v));
+  // hi is optional — FS / FD are uncapped per Android FrameStatsStep.kt.
+  // Only the floor is enforced when hi is undefined.
+  r[field] = hi != null ? Math.max(lo, Math.min(hi, v)) : Math.max(lo, v);
   saveRobot(r);
   render();
 };
