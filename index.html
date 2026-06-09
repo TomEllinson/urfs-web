@@ -16,7 +16,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.2.4 (2026-06-09) — frame stat caps: STR/DUR uncapped, MAT 1-4
+  Version: 0.2.5 (2026-06-09) — input width 100% so frame stat row fits 4-up again
     typography, chamfered chips, register-bracket cards, phosphor amber + comm cyan two-channel ink.
   Version: 0.2.1 (2026-06-08) — Module catalog parity: added targeting_comp, melee_comp, fuel_gen, fuel_reactor,
     component_toggle_system, component_stow_slot, multi_toggle_system, facing_rotation_system,
@@ -367,6 +367,12 @@
   .field {
     display: flex; flex-direction: column; gap: 4px;
     margin: 8px 0;
+    /* min-width:0 lets the parent flex shrink this column below content
+       width — critical when a `.field` lives inside a `.row-gap` with
+       flex:1 siblings, otherwise the input's intrinsic content width
+       (number inputs scale with the `max` attr's digit count) blows
+       the row past the viewport. */
+    min-width: 0;
   }
   .field label {
     font-family: "Space Mono", ui-monospace, monospace;
@@ -378,6 +384,12 @@
     border: 1px solid var(--bulkhead);
     border-radius: 2px;
     padding: 8px 10px; color: var(--frame-white);
+    /* Fill the parent .field column so inputs don't snap to their
+       content-driven intrinsic width. Pre-0.2.5, removing max=N from
+       FS / FD inputs let them widen and push FM off the page. */
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
   }
   .field input:focus, .field select:focus, .field textarea:focus {
     outline: none; border-color: var(--comm-cyan);
@@ -697,7 +709,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.4";
+const APP_VERSION = "0.2.5";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
