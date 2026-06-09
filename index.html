@@ -16,7 +16,7 @@
   persists in IndexedDB; one URL per device. Ship-as-single-file so
   GitHub Pages just serves a static asset.
   ---
-  Version: 0.2.5 (2026-06-09) — input width 100% so frame stat row fits 4-up again
+  Version: 0.2.6 (2026-06-09) — socket-facing picker on internal/external/swivel weapon socket install
     typography, chamfered chips, register-bracket cards, phosphor amber + comm cyan two-channel ink.
   Version: 0.2.1 (2026-06-08) — Module catalog parity: added targeting_comp, melee_comp, fuel_gen, fuel_reactor,
     component_toggle_system, component_stow_slot, multi_toggle_system, facing_rotation_system,
@@ -709,7 +709,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.5";
+const APP_VERSION = "0.2.6";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -748,9 +748,9 @@ let MODULES = [
   { id: "composite_armor",     name: "Composite Armor",      category: "Defense",  weight: 0, power: 0,  definitionLimit: [], description: "+1× Sil component armor, weightless.", armorMultiplier: 1, stackable: true },
   { id: "armor_coating",       name: "Armor Coating",        category: "Defense",  weight: 1, power: 0,  definitionLimit: [], description: "Immune to Energy at full armor.", requires: ["armor","heavy_armor","composite_armor"], maxPerComponent: 1 },
   { id: "manipulator",         name: "Manipulator",          category: "Mounts",   weight: 1, power: -2, definitionLimit: ["ARM"], description: "Hand. Required for weapons.", maxPerComponent: 1 },
-  { id: "internal_weapon_socket", name: "Internal Weapon Socket", category: "Mounts", weight: 0, power: -2, definitionLimit: [], description: "Mounts a Mount-Point ranged weapon, one chosen facing.", maxCopies: -1 },
-  { id: "fixed_external_socket",  name: "Fixed External Equipment Socket", category: "Mounts", weight: 0, power: 0, definitionLimit: [], description: "Mounts a Mount-Point weapon, one chosen facing.", maxCopies: -1 },
-  { id: "swivel_weapon_socket",   name: "Swivel Weapon Socket", category: "Mounts", weight: 1, power: -1, definitionLimit: [], description: "Mounts a Mount-Point weapon; fires into base + 2 adjacent arcs.", maxCopies: -1 },
+  { id: "internal_weapon_socket", name: "Internal Weapon Socket", category: "Mounts", weight: 0, power: -2, definitionLimit: [], description: "Mounts a Mount-Point ranged weapon, one chosen facing.", maxCopies: -1, requiresSocketFacing: true },
+  { id: "fixed_external_socket",  name: "Fixed External Equipment Socket", category: "Mounts", weight: 0, power: 0, definitionLimit: [], description: "Mounts a Mount-Point weapon, one chosen facing.", maxCopies: -1, requiresSocketFacing: true },
+  { id: "swivel_weapon_socket",   name: "Swivel Weapon Socket", category: "Mounts", weight: 1, power: -1, definitionLimit: [], description: "Mounts a Mount-Point weapon; fires into base + 2 adjacent arcs.", maxCopies: -1, requiresSocketFacing: true },
   { id: "holster_point",       name: "Holster Point",        category: "Mounts",   weight: 0, power: 0, definitionLimit: [], description: "Stows a held weapon for Draw.", maxCopies: -1 },
   { id: "tether_socket",       name: "Tether Socket",        category: "Mounts",   weight: 0, power: -1, definitionLimit: [], description: "Mounts Tethered equipment.", maxCopies: -1 },
   { id: "booster",             name: "Booster",              category: "Mobility", weight: 1, power: 0, definitionLimit: [], description: "+1 Boost Power.", boost: 1, stackable: true },
@@ -2149,6 +2149,21 @@ function autoAdditionalFacings(def, primary) {
   return null;
 }
 
+// 0.2.6: every facing the component "occupies" — used by the socket-facing
+// picker on install of internal/external/swivel weapon sockets. CORE owns
+// all 6 facings (rulebook L82-84). Other components: primary + auto-adjacent
+// (HEAD-horizontal) + user-picked additionalFacings.
+function componentEffectiveFacings(c) {
+  if (!c) return [];
+  if (c.definition === "CORE") return FACINGS.slice();
+  const primary = c.facing || "FRONT";
+  const auto = autoAdditionalFacings(c.definition, primary) || [];
+  const extra = c.additionalFacings || [];
+  const all = [primary, ...auto, ...extra];
+  // dedupe while preserving primary-first order
+  return all.filter((f, i) => all.indexOf(f) === i);
+}
+
 function renderFacingPickerHtml(def, primary, picked, idPrefix) {
   const options = eligibleAdditionalFacings(def, primary);
   const required = requiredAdditionalCount(def, primary);
@@ -2389,10 +2404,13 @@ let renderEditComponent = function (rid, cid) {
       const slotsFull = slotCount >= slotCap;
       const moduleRows = (c.modules || []).map((m, i) => {
         const def = MODULES_BY_ID[m.moduleId];
+        const facingChip = m.socketFacing
+          ? `<span class="chip muted" style="margin-left:6px; font-size:10px">@ ${escapeHtml(m.socketFacing)}</span>`
+          : "";
         return `
           <div class="card tight row-between">
             <div>
-              <strong>${escapeHtml(def?.name || m.moduleId)}</strong>
+              <strong>${escapeHtml(def?.name || m.moduleId)}</strong>${facingChip}
               <div class="meta" style="font-size:10px">W ${def?.weight ?? 0} · P ${def?.power ?? 0}</div>
             </div>
             <button class="btn ghost" data-act="remove-module" data-rid="${rid}" data-cid="${cid}" data-idx="${i}">✕</button>
@@ -2629,8 +2647,54 @@ handlers["install-module"] = ({ rid, cid, mid }) => {
   const r = state.robots.find(x => x.id === Number(rid));
   const c = r?.components.find(c => c.tempId === Number(cid));
   if (!c) return;
+  // 0.2.6 (qa.fix.socket_facing_picker): Internal / External / Swivel
+  // weapon sockets each mount a Mount-Point weapon at one chosen facing
+  // (rulebook L740+). Open a small picker before persisting so the
+  // module instance carries socketFacing. Single-facing components
+  // (e.g. UTILITY with primary FRONT only) skip the picker and bind to
+  // the lone option automatically.
+  const moduleDef = MODULES_BY_ID[mid];
+  if (moduleDef?.requiresSocketFacing) {
+    const options = componentEffectiveFacings(c);
+    if (options.length <= 1) {
+      c.modules.push({ moduleId: mid, socketFacing: options[0] || c.facing || "FRONT" });
+      saveRobot(r);
+      pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+      return;
+    }
+    pushModal("socket-facing-picker", { rid: Number(rid), cid: Number(cid), mid });
+    return;
+  }
   c.modules.push({ moduleId: mid });
   saveRobot(r);
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+let renderSocketFacingPicker = function (rid, cid, mid) {
+  const r = state.robots.find(x => x.id === rid);
+  const c = r?.components.find(c => c.tempId === cid);
+  if (!c) return "<p>?</p>";
+  const moduleDef = MODULES_BY_ID[mid];
+  const options = componentEffectiveFacings(c);
+  return `
+    <h2>PICK SOCKET FACING</h2>
+    <p class="meta">${escapeHtml(moduleDef?.name || mid)} mounts at one chosen facing on ${escapeHtml(c.name || c.definition)}.</p>
+    <div class="row-gap" style="flex-wrap:wrap; margin-top:8px">
+      ${options.map(f => `<button class="btn ghost" data-act="confirm-socket-facing" data-rid="${rid}" data-cid="${cid}" data-mid="${mid}" data-f="${f}">${f}</button>`).join("")}
+    </div>
+    <div class="actions" style="margin-top:12px">
+      <button class="btn ghost" data-act="cancel-socket-facing" data-rid="${rid}" data-cid="${cid}">CANCEL</button>
+    </div>
+  `;
+};
+handlers["confirm-socket-facing"] = ({ rid, cid, mid, f }) => {
+  const r = state.robots.find(x => x.id === Number(rid));
+  const c = r?.components.find(c => c.tempId === Number(cid));
+  if (!c) return;
+  c.modules.push({ moduleId: mid, socketFacing: f });
+  saveRobot(r);
+  pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
+};
+handlers["cancel-socket-facing"] = ({ rid, cid }) => {
   pushModal("edit-component", { rid: Number(rid), cid: Number(cid) });
 };
 handlers["cancel-module-picker"] = ({ rid, cid }) => {
@@ -6744,6 +6808,7 @@ renderModal = function () {
     case "add-component":    body = renderAddComponent(data.rid); break;
     case "edit-component":   body = renderEditComponent(data.rid, data.cid); break;
     case "module-picker":    body = renderModulePicker(data.rid, data.cid); break;
+    case "socket-facing-picker": body = renderSocketFacingPicker(data.rid, data.cid, data.mid); break;
     case "equipment-picker": body = renderEquipmentPicker(data.rid, data.cid); break;
     case "equipment-editor": body = renderEquipmentEditor(data.id); break;
     case "pilot-editor":     body = renderPilotEditor(data.id); break;
@@ -6822,9 +6887,29 @@ async function init() {
   state.robots = robots; state.pilots = pilots; state.equipment = equipment;
   state.forces = forces; state.battles = battles;
   // Load content packs; seed urfs-core if not persisted yet.
+  // 0.2.6: ALWAYS refresh urfs-core's MODULES/TALENTS/KEYWORDS arrays from
+  // the latest in-memory _CORE snapshots. Pre-fix the pack was seeded once
+  // per IDB and never updated — every catalog update I shipped after the
+  // user's first install (added modules, new keyword flags, etc) silently
+  // never reached them. Users keep their `active` flag and any custom
+  // pack rows; only the canonical urfs-core content is refreshed.
   const packsRecord = await dbGet("settings", "packs");
   if (packsRecord?.value) {
     state.packs = packsRecord.value;
+    const core = state.packs.find(p => p.id === "urfs-core");
+    if (core) {
+      core.modules = _CORE_MODULES;
+      core.talents = _CORE_TALENTS;
+      core.keywords = _CORE_KEYWORDS;
+      core.version = "1.0";
+    } else {
+      state.packs.unshift({
+        id: "urfs-core", name: "URFS Core", version: "1.0",
+        active: true,
+        modules: _CORE_MODULES, talents: _CORE_TALENTS, keywords: _CORE_KEYWORDS,
+      });
+    }
+    dbPut("settings", { id: "packs", value: state.packs });
   } else {
     state.packs = [{
       id: "urfs-core", name: "URFS Core", version: "1.0",
