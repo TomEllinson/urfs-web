@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.93";
+const APP_VERSION = "0.2.94";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -5674,13 +5674,38 @@ function renderActionSheet(r) {
   // §64 (Tom 2026-06-17): Strain consequence chip — replaces the hard
   // cap as the player's feedback on token cost. Shows the worst-case
   // upcoming strain for the NEXT primary/reaction action on this Robot:
-  //   • Per cockpit pilot: pilotStrain → if (current+1) > Mental, the
-  //     next strain token deals +1 Pilot HP damage (iter 12 §4).
-  //   • System strain: if (current+1) > threshold, the next System
-  //     Strain token triggers an Emergency Shutdown Check (§55).
-  // These are advisory — final cost depends on the specific action and
-  // pilot picker — but they surface the cost the rulebook designed in.
+  //   • Per cockpit pilot: pilotStrain → if (current+cost) > Mental, the
+  //     next strain tokens deal +1 Pilot HP damage each (iter 12 §4).
+  //   • System strain: if (current+1) > threshold, the System Strain
+  //     token triggers an Emergency Shutdown Check (§55).
+  // §90b (Tom 2026-06-17): per-action cost prediction — SALVO bills per
+  // weapon fired (§58), MELEE_ASSAULT bills per weapon fired (§72).
+  // Compute the WORST-case Pilot Strain cost across this robot's
+  // available multi-weapon actions so the chip's threshold prediction
+  // matches the rulebook designed-in cost.
   const strainChips = (() => {
+    // Count Ranged + Melee weapons to compute worst-case multi-weapon
+    // P-Strain billing (defaults to 1 if no multi-weapon action exists).
+    let worstPilotCost = 1;
+    let worstCostAction = "";
+    try {
+      const rangedCount = (r.components || []).reduce((n, c) => {
+        if (c.isDestroyed) return n;
+        return n + (c.equipment || []).filter(e => (e?.keywords || []).includes("Ranged")).length;
+      }, 0);
+      const meleeCount = (r.components || []).reduce((n, c) => {
+        if (c.isDestroyed) return n;
+        return n + (c.equipment || []).filter(e => (e?.keywords || []).includes("Melee")).length;
+      }, 0);
+      if (rangedCount > worstPilotCost) {
+        worstPilotCost = rangedCount;
+        worstCostAction = `SALVO (${rangedCount} weapons)`;
+      }
+      if (meleeCount > worstPilotCost) {
+        worstPilotCost = meleeCount;
+        worstCostAction = `MELEE ASSAULT (${meleeCount} weapons)`;
+      }
+    } catch (_) { /* defensive — fall back to 1 */ }
     const chips = [];
     const cockpits = (r.cockpitPilots || []).filter(cp => !cp.isKO && cp.pilotId);
     for (const cp of cockpits) {
@@ -5689,10 +5714,18 @@ function renderActionSheet(r) {
       const mental = pilot.mental || 0;
       const cur = cp.pilotStrain || 0;
       const nextOver = mental > 0 && (cur + 1) > mental;
-      const label = nextOver
-        ? `⚠ ${escapeHtml(pilot.name || "Pilot")}: Strain ${cur}/${mental} → next = +1 Pilot HP`
-        : `${escapeHtml(pilot.name || "Pilot")}: Strain ${cur}/${mental}`;
-      chips.push(`<span class="chip ${nextOver ? "amber" : ""}" title="Pilot Strain consequence. Rulebook Ch 4 L24 / iter 12 §4.">${label}</span>`);
+      // Worst case prediction (across multi-weapon actions)
+      const worstHits = worstPilotCost > 1 && (cur + worstPilotCost) > mental;
+      let label;
+      if (nextOver) {
+        label = `⚠ ${escapeHtml(pilot.name || "Pilot")}: Strain ${cur}/${mental} → next = +1 Pilot HP`;
+      } else if (worstHits) {
+        const excess = Math.max(0, (cur + worstPilotCost) - mental);
+        label = `${escapeHtml(pilot.name || "Pilot")}: Strain ${cur}/${mental} (worst: ${worstCostAction} → +${excess} Pilot HP)`;
+      } else {
+        label = `${escapeHtml(pilot.name || "Pilot")}: Strain ${cur}/${mental}`;
+      }
+      chips.push(`<span class="chip ${nextOver ? "amber" : worstHits ? "" : ""}" title="Pilot Strain consequence. Ch 4 L24 / iter 12 §4. Worst-case across multi-weapon actions (§58 SALVO / §72 MELEE_ASSAULT).">${label}</span>`);
     }
     const sysCur = r.systemStrain || 0;
     const sysMax = r.systemStrainThreshold || 0;
@@ -5700,7 +5733,7 @@ function renderActionSheet(r) {
     const sysLabel = sysOver
       ? `⚠ Sys Strain ${sysCur}/${sysMax} → next = Emergency Shutdown Check`
       : `Sys Strain ${sysCur}/${sysMax}`;
-    chips.push(`<span class="chip ${sysOver ? "amber" : ""}" title="System Strain consequence. Rulebook Ch 4 L24 / §55.">${sysLabel}</span>`);
+    chips.push(`<span class="chip ${sysOver ? "amber" : ""}" title="System Strain consequence. Rulebook Ch 4 L24 / §55. Always +1 per action regardless of weapon count.">${sysLabel}</span>`);
     return `<div class="card tight" style="display:flex; flex-wrap:wrap; gap:6px; margin:4px 10px"><span class="label-small">NEXT ACTION COST</span>${chips.join("")}</div>`;
   })();
   const activeBucket = state._actionBucketTab || "primary";
