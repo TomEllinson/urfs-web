@@ -9,7 +9,13 @@ Open `index.html` in any modern browser. Everything lives in one
 file: HTML + CSS + JS. Data persists locally per device via
 IndexedDB. No build step, no toolchain, no server.
 
-## What it has (v0.0.2)
+## What it has (v0.2.92)
+
+Full URFS rulebook implementation. See the Version / Changelog
+section for the canonical-sync sweep that brought v0.0.2 →
+v0.2.92.
+
+## What it has (v0.0.2 — historical)
 
 - **Garage** — list, create, edit, delete robots
 - **Robot editor** — name, silhouette, frame stats (FS / FD / FM),
@@ -121,9 +127,120 @@ Just `index.html`. ~135KB. No build step, no dependencies.
 
 ## Version
 
-v0.1.0 — 2026-06-06 — Android parity sprint (full)
+v0.2.92 — 2026-06-17 — canonical rulebook sync sweep + pre-ship harnesses
 
 ### Changelog
+
+- **v0.2.7 → v0.2.92** (2026-06-17): **Canonical rulebook sync sweep.**
+  85 micro-versions across 13 production commits. 92 patches closed.
+  Six probe-driven catalog audits (ACTIONS, MODULES, TALENTS, CALC
+  functions, KEYWORDS, build-time validators) plus 16 chapter audits,
+  2 cross-mechanic probes, 1 performance probe, and 4 Playwright
+  validation runs. **12 fundamental gameplay-rule fixes** the webapp
+  had been wrong on since the relevant feature shipped:
+
+  - **§55 Emergency Shutdown Check formula** — combined Mental dice
+    + Capacitors remaining (was Frame Durability dice). Players were
+    rolling 1–4 dice when canon allowed 5+.
+  - **§63 Salvo Mental overflow check** — targets-vs-Mental (was
+    weapons-vs-Mental, accidentally introduced when §58 Strain
+    billing flipped to per-weapon).
+  - **§64 Action Tokens unlimited per round** — removed the 1-Primary
+    / 2-Reaction round caps per Ch 4 L24. Strain consequence chip
+    replaces hard gate.
+  - **§65 Boost Inertia** — per-Silhouette, Flying-only (was raw
+    Scale Units, fired on ground too — ~4× over-accumulation across
+    every battle).
+  - **§66 Altitude decay after each action** — Flying Robots sink
+    Sil-Glide if Inertia > 0, else Sil; Hover floor protects (was
+    absent — flying was a free resource).
+  - **§67 Hover floor stackable** — multiple Hover Systems compound
+    (was hardcoded 0/1).
+  - **§73 Coolant Vent** — removes hits in S-Strain (was 2× hits —
+    silently doubled strain removal entire history).
+  - **§74 fuel_tank toggle now respected** — toggling off drops
+    capacity; previously ignored entirely.
+  - **§76 Overclock once-per-game persistence** — `r.overclockUsed`
+    now initialized in migrateBattleSchema so save/load gates
+    correctly (was silently broken on resumed battles).
+  - **§77 Neural Link strain base** — Physical (was Mental) per Ch
+    11 L13. Affected SALVO strain damage + all downstream threshold
+    reads.
+  - **§79 calcTotalWeight equipment counted** — equipment weight
+    now contributes to Robot Load per Ch 13 L158. Pre-fix: every
+    overloaded robot was less penalized than canon; every Boost
+    cheaper than canon.
+  - **§82 Penetrating SUM across instances** — total bypass per Ch
+    12 L66 (was MAX — multi-Penetrating loadouts under-bypassed by
+    up to 50%).
+
+- **Other notable fixes** (87+ items in the rulebook patch catalog):
+
+  - **§49 Scatter multi-component**: hits ALL targetable components
+    on success (was single-component pick).
+  - **§50 Inertia Impact auto-Fortitude**: cockpit hit + attacker
+    Inertia → per-pilot Fortitude vs Inertia score.
+  - **§51-§53 audit cleanup**: Coordinated cost (3→4), equipment Sil
+    cap (1×→2×), Max Load CORE-always-counts + LEG additionalFacings.
+  - **§57 Sharpshooter gate restored**: Once per game · Salvo only ·
+    single target · Inertia 0.
+  - **§58 Salvo Strain per weapon fired** (Ch 5 L15).
+  - **§59 Quick Move 1/4 reverse** (was always 1/2).
+  - **§68 Strain Threshold reacts to Coprocessor toggle-off** with
+    immediate post-action Shutdown Check.
+  - **§70 moveMod ceil** (was floor — rulebook now unambiguous).
+  - **§71 Fortitude queue scrub** when pilot KO'd mid-roll.
+  - **§81 Cross-robot pilot dedup** (auto-move pilot from old robot
+    to new on assignment).
+  - **§85 + §86 Auto and Indirect keywords** — full canonical
+    implementation including extra-attack-per-instance and 1/3-max-
+    range override.
+  - **Embedded RULEBOOK_MD re-synced** from canonical chapter sources
+    (47KB → 107KB; 24 RULE_REFS re-aligned).
+  - **Dead-code cleanup** (−143 lines of orphan helpers / unused CSS
+    blocks / write-only state fields).
+  - **Save/load resilience** via single `migrateBattleSchema`
+    chokepoint backfilling 30+ fields + orphan-ID repair.
+  - **Multi-pilot cockpit shared damage**: cockpit-host KO when
+    component destroyed (Ch 13 L138).
+  - **Action token visualization, robot deploy preview (6 build
+    warning chips), Pop-up rule peeks (24 RULE_REFS).**
+
+- **Pre-ship safety nets** (NEW — §87 + §89):
+
+  - `window.__perf()` — 5-measurement render baseline with threshold
+    warnings. Call from devtools to verify no perf regression before
+    committing.
+  - `window.__actionSmoke()` — iterates all 32 ACTIONS keys × picker
+    + manual paths = 64 invocations. Wraps in try/catch +
+    window.onerror sinks. Saves and restores all state. Catches the
+    `_sStrainDelta`-class ReferenceError that broke v0.2.85 (caught
+    + hotfixed in v0.2.90).
+  - **`__perf()` + `__actionSmoke()` is the pre-ship checklist**
+    for any future webapp edit.
+
+- **Performance**: zero regressions despite +33% line growth
+  (12384 → 17335 lines). Cold load 86ms, 5-robot battle resume 45ms,
+  rulebook search keystroke 0.7ms, action log 60 entries 4.5ms.
+
+- **§87a Performance**: BY_ID maps for equipment/robots/forces/
+  pilots/battles (was 105 `.find()` call sites). Centralized
+  invalidation at dbPut/dbDelete/init/import-replace.
+
+- **§87b Performance**: searchRulebook now uses precomputed line-
+  offset table + binary search (was O(N) text.slice().split per
+  match).
+
+- **§87c Performance**: resume-battle handler now tolerates string
+  / numeric / coerced IDs (future content-pack-import compatibility).
+
+- **Android port** (separate `feature/v1.0` codebase, uncommitted):
+  4 iters landed (§52 / §54 / §57 / §58 / §59 / §62 text drifts,
+  §66 altitude decay auto-fire, §57 Sharpshooter once-per-game gate
+  + §58/§63 Salvo helper, §46 / §49 / §50 damage flow port). 607
+  tests passing. Total +1112 / -138 tracked lines + new test files.
+
+
 
 - **v0.1.0+stage8** (2026-06-06): Stage 8 — out-of-scope items
   pulled in at Tom's request and shipped same day. 8 more items:
