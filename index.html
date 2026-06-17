@@ -3092,33 +3092,69 @@ function autoAdditionalFacings(def, primary) {
 // all 6 facings (rulebook L82-84). Other components: primary + auto-adjacent
 // (HEAD-horizontal) + user-picked additionalFacings.
 //
-// §23 (Ch 2 L65): if `retainedSharedFacings` is set (partner Arm with shared
-// Head facings has been destroyed), and the optional `robot` arg is supplied,
-// union in the destroyed partner's facings so the surviving Arm keeps the
-// shared set. Without `robot`, the flag is recorded for forward-compat but
-// no live recompute happens — build-time facings are unchanged.
+// §92 (Ch 2 L59-65) — Head Shared Facings. An ARM whose
+// `sharesFacingsWithComponentId` references a HEAD on the same robot
+// gains coordinated facings IF at least one OTHER non-destroyed ARM
+// also references the same Head. The coordinated set is the union of
+// each participating Arm's intersection-with-Head facings:
+//   bonus = (A ∩ H) ∪ (B ∩ H)
+// per the rulebook example (A=F+R, B=F+L, H=F+L+R → bonus F+L+R).
+// Lone arms (no partner) gain nothing. The HEAD itself does not gain
+// shared facings — it's a coordination hub.
+//
+// Retention (Ch 2 L65): if a partner Arm is destroyed, the surviving
+// Arm keeps the coordinated facings. `retainedSharedFacings = true` on
+// the survivor tells this helper to include destroyed arms pointing
+// to the same head in the partner search. Without `robot` we return
+// only base facings — callers that need the bonus must pass the
+// owning robot.
 function componentEffectiveFacings(c, robot) {
   if (!c) return [];
   if (c.definition === "CORE") return FACINGS.slice();
   const primary = c.facing || "FRONT";
   const auto = autoAdditionalFacings(c.definition, primary) || [];
   const extra = c.additionalFacings || [];
-  let all = [primary, ...auto, ...extra];
-  if (c.retainedSharedFacings && robot && Array.isArray(robot.components)) {
-    const partnerRef = c.sharesFacingsWithComponentId
-                    ?? c.sharesFacingsWithTempId
+  const base = [primary, ...auto, ...extra];
+  let bonus = [];
+  if (c.definition === "ARM" && robot && Array.isArray(robot.components)) {
+    const headRef = c.sharesFacingsWithComponentId
+                 ?? c.sharesFacingsWithTempId
+                 ?? null;
+    if (headRef !== null) {
+      const head = robot.components.find(x =>
+        (x.componentId ?? x.tempId) === headRef
+        && x.definition === "HEAD" && !x.isDestroyed);
+      if (head) {
+        const hPrim = head.facing || "FRONT";
+        const hAuto = autoAdditionalFacings(head.definition, hPrim) || [];
+        const hExtra = head.additionalFacings || [];
+        const headSet = new Set([hPrim, ...hAuto, ...hExtra]);
+        const partners = robot.components.filter(x => {
+          if (x === c) return false;
+          if (x.definition !== "ARM") return false;
+          const xRef = x.sharesFacingsWithComponentId
+                    ?? x.sharesFacingsWithTempId
                     ?? null;
-    if (partnerRef !== null) {
-      const partner = robot.components.find(x =>
-        (x.componentId ?? x.tempId) === partnerRef);
-      if (partner) {
-        const pPrim = partner.facing || "FRONT";
-        const pAuto = autoAdditionalFacings(partner.definition, pPrim) || [];
-        const pExtra = partner.additionalFacings || [];
-        all = all.concat([pPrim, ...pAuto, ...pExtra]);
+          if (xRef !== headRef) return false;
+          if (x.isDestroyed && !c.retainedSharedFacings) return false;
+          return true;
+        });
+        if (partners.length > 0) {
+          // (self ∩ head) ∪ Σ(partner ∩ head). Coordinated facings are
+          // a subset of the Head's facings — that's the "hub" constraint.
+          for (const arm of [c, ...partners]) {
+            const aPrim = arm.facing || "FRONT";
+            const aAuto = autoAdditionalFacings(arm.definition, aPrim) || [];
+            const aExtra = arm.additionalFacings || [];
+            for (const f of [aPrim, ...aAuto, ...aExtra]) {
+              if (headSet.has(f)) bonus.push(f);
+            }
+          }
+        }
       }
     }
   }
+  const all = [...base, ...bonus];
   // dedupe while preserving primary-first order
   return all.filter((f, i) => all.indexOf(f) === i);
 }
@@ -3300,6 +3336,102 @@ window.onEditCompFacingChange = function() {
   if (btn) btn.disabled = (required > 0 && !auto && editCompUI.picked.length !== required);
 };
 
+// §92 (Ch 2 L59-65) — Head Shared Facings builder UI.
+// On an ARM: a "SHARES FACINGS THROUGH HEAD" picker listing every HEAD on
+// the robot, plus an advisory line that computes the coordination union
+// against the current pick. On a HEAD: a read-only "COORDINATING ARMS"
+// list of every ARM already pointing to this Head.
+function renderHeadShareUiHtml(r, c) {
+  if (!r || !c) return "";
+  if (c.definition === "ARM") {
+    const heads = (r.components || []).filter(x => x.definition === "HEAD");
+    if (heads.length === 0) {
+      return `
+        <div class="field">
+          <label>SHARES FACINGS THROUGH HEAD <span style="color:var(--on-surface-muted);font-weight:normal">(§92 / Ch 2 L59-65)</span></label>
+          <div class="meta" style="padding:4px 0; font-size:11px">No HEAD components — install a Head to enable coordination.</div>
+        </div>
+      `;
+    }
+    const selectedId = c.sharesFacingsWithComponentId
+                    ?? c.sharesFacingsWithTempId
+                    ?? "";
+    const opts = `<option value="">— None (no coordination) —</option>` +
+      heads.map(h => `<option value="${h.tempId}" ${String(h.tempId)===String(selectedId)?"selected":""}>${escapeHtml(h.name || h.definition)} · ${h.facing}${(h.additionalFacings||[]).length?" +"+ (h.additionalFacings||[]).join("+"):""}</option>`).join("");
+    return `
+      <div class="field">
+        <label>SHARES FACINGS THROUGH HEAD <span style="color:var(--on-surface-muted);font-weight:normal">(§92 / Ch 2 L59-65)</span></label>
+        <select id="ec-share-head" onchange="window.onEditCompShareHeadChange()">${opts}</select>
+        <div id="ec-share-head-advisory" class="meta" style="font-size:11px; margin-top:4px">${headShareAdvisoryText(r, c, selectedId === "" ? null : Number(selectedId))}</div>
+      </div>
+    `;
+  }
+  if (c.definition === "HEAD") {
+    const coords = (r.components || []).filter(x => {
+      if (x.definition !== "ARM") return false;
+      const ref = x.sharesFacingsWithComponentId ?? x.sharesFacingsWithTempId ?? null;
+      return ref === c.tempId || ref === c.componentId;
+    });
+    const list = coords.length === 0
+      ? `<div class="meta" style="font-size:11px; padding:4px 0">No ARMS coordinating through this Head yet.</div>`
+      : coords.map(a => `<span class="chip muted" style="margin:2px">${escapeHtml(a.name || "ARM")} · ${a.facing}${(a.additionalFacings||[]).length?" +"+ (a.additionalFacings||[]).join("+"):""}</span>`).join("");
+    return `
+      <div class="field">
+        <label>COORDINATING ARMS <span style="color:var(--on-surface-muted);font-weight:normal">(§92 / Ch 2 L59-65)</span></label>
+        <div style="display:flex; flex-wrap:wrap; gap:2px">${list}</div>
+        ${coords.length === 1 ? `<div class="meta" style="font-size:11px; margin-top:4px; color:var(--amber,#f59e0b)">Lone Arm — coordination needs a partner Arm also sharing this Head.</div>` : ""}
+      </div>
+    `;
+  }
+  return "";
+}
+
+// Compute the advisory text for the Arm-picker. If headId is null/none,
+// say "no coordination". If a Head is picked but no partner Arm shares,
+// say "no partner found — coordination not active". Otherwise list the
+// effective facing union the Arm would gain.
+function headShareAdvisoryText(r, c, headId) {
+  if (!headId) return "No coordination — this Arm uses only its own facings.";
+  // Simulate the pick to compute the bonus without mutating.
+  const simulated = { ...c, sharesFacingsWithComponentId: headId };
+  const heads = (r.components || []).filter(x => x.definition === "HEAD");
+  const head = heads.find(h => h.tempId === headId || h.componentId === headId);
+  if (!head) return "Selected Head not found on this robot.";
+  // Check for a partner Arm sharing the same head.
+  const partners = (r.components || []).filter(x => {
+    if (x.tempId === c.tempId) return false;
+    if (x.definition !== "ARM") return false;
+    const ref = x.sharesFacingsWithComponentId ?? x.sharesFacingsWithTempId ?? null;
+    return ref === headId;
+  });
+  if (partners.length === 0) {
+    return `Head picked, but no partner Arm shares this Head yet — coordination not active (lone-arm rule, Ch 2 L65).`;
+  }
+  // Compute the would-be effective facings.
+  const eff = componentEffectiveFacings(simulated, { components: [simulated, head, ...partners, ...((r.components || []).filter(x => x.tempId !== c.tempId && !partners.includes(x) && x !== head))] });
+  const gained = eff.filter(f => ![simulated.facing, ...(autoAdditionalFacings(simulated.definition, simulated.facing) || []), ...(simulated.additionalFacings || [])].includes(f));
+  if (gained.length === 0) {
+    return `Coordinated via ${escapeHtml(head.name || "Head")}, but no NEW facings beyond this Arm's own (intersection already in base).`;
+  }
+  return `Gains <strong>${gained.join("+")}</strong> through ${escapeHtml(head.name || "Head")} (effective: ${eff.join("+")}).`;
+}
+
+window.onEditCompShareHeadChange = function() {
+  // Re-render the advisory under the picker.
+  const sel = document.getElementById("ec-share-head");
+  const adv = document.getElementById("ec-share-head-advisory");
+  if (!sel || !adv) return;
+  const headIdRaw = sel.value;
+  const headId = headIdRaw === "" ? null : Number(headIdRaw);
+  // Look up the current robot + component via the open modal's data.
+  const m = state.modal;
+  if (!m || m.kind !== "edit-component") return;
+  const r = ROBOTS_BY_ID[m.data.rid];
+  const c = r?.components.find(x => x.tempId === m.data.cid);
+  if (!r || !c) return;
+  adv.innerHTML = headShareAdvisoryText(r, c, headId);
+};
+
 let renderEditComponent = function (rid, cid) {
   const r = ROBOTS_BY_ID[rid];
   const c = r?.components.find(c => c.tempId === cid);
@@ -3357,6 +3489,7 @@ let renderEditComponent = function (rid, cid) {
       <div id="ec-facing-picker-wrap">${renderFacingPickerHtml(c.definition, c.facing || "FRONT", editCompUI.picked, "ec")}</div>
     `}
     ${parentPickerHtml}
+    ${renderHeadShareUiHtml(r, c)}
     ${(() => {
       const slotCap = MODULE_SLOT_CAPS[c.definition] || 8;
       const slotCount = (c.modules || []).length;
@@ -3492,6 +3625,14 @@ handlers["modal-close-component"] = ({ rid, cid }) => {
     }
     const parentEl = document.getElementById("ec-parent");
     if (parentEl) c.parentTempId = Number(parentEl.value) || null;
+    // §92 — persist Head share pick for ARMs.
+    if (def === "ARM") {
+      const shareEl = document.getElementById("ec-share-head");
+      if (shareEl) {
+        const v = shareEl.value;
+        c.sharesFacingsWithComponentId = v === "" ? null : Number(v);
+      }
+    }
     saveRobot(r);
   }
   pushModal("robot-editor", { id: Number(rid) });
@@ -6320,27 +6461,33 @@ function destroyComponent(robotId, componentId) {
   r.cascadeLog = r.cascadeLog || [];
   r.cascadeLog.push({ kind: "destroyed", componentId, when: Date.now() });
 
-  // §23 (Ch 2 L65): Head Shared Facings persistence. If this component
-  // shared a Head facing set with a partner Arm, the partner retains the
-  // shared facings as if both were still intact. Flag the partner so any
-  // future live recompute keeps the union. Webapp currently derives
-  // facings at build time (`componentEffectiveFacings` is config-driven),
-  // so the flag is also a forward-compat marker for any later live
-  // recompute path.
-  const partnerRef = c.sharesFacingsWithComponentId
-                  ?? c.sharesFacingsWithTempId
+  // §92 (Ch 2 L65) — Head Shared Facings retention. If the destroyed
+  // component is an ARM that was coordinating through a Head, find any
+  // OTHER non-destroyed Arm coordinating through the same Head and flag
+  // it `retainedSharedFacings = true` so `componentEffectiveFacings`
+  // keeps including the destroyed partner in the union.
+  if (c.definition === "ARM") {
+    const headRef = c.sharesFacingsWithComponentId
+                 ?? c.sharesFacingsWithTempId
+                 ?? null;
+    if (headRef !== null) {
+      for (const other of r.components) {
+        if (other === c) continue;
+        if (other.definition !== "ARM") continue;
+        if (other.isDestroyed) continue;
+        const oRef = other.sharesFacingsWithComponentId
+                  ?? other.sharesFacingsWithTempId
                   ?? null;
-  if (partnerRef !== null) {
-    const partner = r.components.find(x =>
-      (x.componentId ?? x.tempId) === partnerRef);
-    if (partner && !partner.isDestroyed) {
-      partner.retainedSharedFacings = true;
-      r.cascadeLog.push({
-        kind: "facings-retained",
-        componentId: partner.componentId ?? partner.tempId,
-        from: componentId,
-        when: Date.now(),
-      });
+        if (oRef === headRef) {
+          other.retainedSharedFacings = true;
+          r.cascadeLog.push({
+            kind: "facings-retained",
+            componentId: other.componentId ?? other.tempId,
+            from: componentId,
+            when: Date.now(),
+          });
+        }
+      }
     }
   }
 
@@ -12837,6 +12984,18 @@ let renderCompSheet = function (rid, cid) {
       ${c.isFrame ? `<span class="chip">FRAME</span>` : ""}
       ${c.isDestroyed ? `<span class="chip red">DESTROYED</span>` : ""}
     </div>
+    ${(() => {
+      // §92 (Ch 2 L59-65) — surface the live coordinated facings union
+      // so the player sees from-which-facings this Arm can fire mid-
+      // battle, including any retained-after-partner-destroyed bonus.
+      if (c.definition !== "ARM") return "";
+      const base = componentEffectiveFacings(c);
+      const eff = componentEffectiveFacings(c, r);
+      const gained = eff.filter(f => !base.includes(f));
+      if (gained.length === 0) return "";
+      const retained = c.retainedSharedFacings ? `<span class="chip" style="background:var(--amber,rgba(245,158,11,0.18)); color:var(--amber,#f59e0b); font-size:10px; margin-left:6px">RETAINED</span>` : "";
+      return `<div class="meta" style="font-size:11px; margin-top:6px">FACINGS: ${eff.join("+")}<span class="meta" style="font-size:10px; opacity:0.7"> (base ${base.join("+")} + coord ${gained.join("+")})</span>${retained}</div>`;
+    })()}
     <div style="margin:10px 0; padding:10px; background:rgba(0,0,0,0.15); border-radius:var(--bevel)">
       <div class="label-small">ARMOR</div>
       <div class="row-gap" style="margin-top:4px">
@@ -14279,6 +14438,49 @@ function buildRobotDeployPreview(robot, force) {
       });
     }
   }
+  // §92 (Ch 2 L59-65) — Head Shared Facings summary. For each ARM that
+  // claims a Head as a coordination hub, record the base facings, the
+  // effective (post-coordination) facings, and the partner / lone-arm
+  // status so the deploy preview can surface a per-arm chip.
+  const sharedFacings = [];
+  for (const c of robot.components || []) {
+    if (c.definition !== "ARM") continue;
+    const headRef = c.sharesFacingsWithComponentId
+                 ?? c.sharesFacingsWithTempId
+                 ?? null;
+    if (headRef === null) continue;
+    const head = (robot.components || []).find(x =>
+      (x.componentId ?? x.tempId) === headRef && x.definition === "HEAD");
+    const base = componentEffectiveFacings(c); // no robot — base only
+    const effective = componentEffectiveFacings(c, robot);
+    const gained = effective.filter(f => !base.includes(f));
+    sharedFacings.push({
+      armName: c.name || "ARM",
+      headName: head?.name || "(head missing)",
+      headOk: !!head,
+      base,
+      effective,
+      gained,
+      coordActive: gained.length > 0,
+    });
+  }
+  // Surface warnings for lone-arm coordination attempts so the player
+  // sees them in the BUILD WARNINGS cluster, not just in the editor.
+  for (const s of sharedFacings) {
+    if (!s.headOk) {
+      warnings.push({
+        severity: "amber",
+        label: `${s.armName.toUpperCase()} HEAD MISSING`,
+        detail: `Arm ${s.armName} points at a Head that no longer exists on this robot — Head Shared Facings coordination disabled (§92 / Ch 2 L59-65).`,
+      });
+    } else if (!s.coordActive) {
+      warnings.push({
+        severity: "amber",
+        label: `${s.armName.toUpperCase()} LONE COORD`,
+        detail: `Arm ${s.armName} shares with ${s.headName} but no partner Arm also shares through it — coordination not active until a second Arm pairs (§92 / Ch 2 L59-65).`,
+      });
+    }
+  }
   return {
     robotId: robot.id,
     robotName: robot.name || "Unnamed",
@@ -14288,7 +14490,7 @@ function buildRobotDeployPreview(robot, force) {
     fuel, shields, caps, strain,
     gspd, boost, boostHoriz, boostVert, glide,
     frameArmor, otherArmor, frameComponents, otherComponents,
-    weapons, pilotEntries, warnings,
+    weapons, pilotEntries, warnings, sharedFacings,
     forceName: force?.name || null,
   };
 }
@@ -14428,6 +14630,21 @@ function renderRobotDeployPreview(rid, fid) {
     ${armorBlock}
     ${mobilityBlock}
     ${weaponsBlock}
+    ${(p.sharedFacings && p.sharedFacings.length > 0) ? `
+      <div class="label-small label-cyan" style="margin-top:12px">HEAD SHARED FACINGS (§92)</div>
+      ${p.sharedFacings.map(s => `<div class="card tight" style="margin-bottom:6px">
+        <div class="row-between">
+          <strong>${escapeHtml(s.armName)}</strong>
+          <span class="chip ${s.coordActive ? "" : "muted"}" style="font-size:10px">→ ${escapeHtml(s.headName)}</span>
+        </div>
+        <div class="meta" style="font-size:11px; margin-top:4px">
+          Base: ${s.base.join("+")}${s.coordActive ? ` · Effective: <strong>${s.effective.join("+")}</strong>` : ""}
+        </div>
+        ${s.coordActive
+          ? `<div class="meta" style="font-size:11px; color:var(--cyan)">Gains ${s.gained.join("+")} via coordination hub.</div>`
+          : `<div class="meta" style="font-size:11px; color:var(--amber,#f59e0b)">No partner Arm — coordination inactive.</div>`}
+      </div>`).join("")}
+    ` : ""}
     ${pilotsBlock}
     ${warningsBlock}
     <div class="actions" style="margin-top:14px">
