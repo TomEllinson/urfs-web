@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.92";
+const APP_VERSION = "0.2.93";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -1248,7 +1248,7 @@ const ACTIONS = {
   DROP:               { label: "Drop",              bucket: "incidental", brief: "Drop a held object/weapon adjacent to the robot.", cost: "Free", rules: "(L274) Drop a held object or weapon adjacent to the Robot. Place a token on the map." },
   DECELERATE:         { label: "Decelerate",        bucket: "incidental", brief: "Spend fuel to reduce Inertia.", cost: "Free + fuel", rules: "(Ch.9 flight rules) Spend fuel to reduce Inertia. See the flight section for fuel cost." },
   STAND_UP:           { label: "Stand Up",          bucket: "incidental", brief: "When DOWN: stand back up.", cost: "Free", rules: "Stand back up from DOWN. Free incidental." },
-  BREAK_FREE:         { label: "Break Free",        bucket: "incidental", brief: "When GRAPPLED: opposed Physical vs grappler. +2 dice per free Manipulator. Ties go to defender (grappler).", cost: "Free", rules: "(Ch 6 §13) Opposed Physical check vs the grappling Robot. Either side adds +2 dice per free Manipulator. Win = grapple clears, both sides' occupied Manipulators released. Tie = still GRAPPLED (defender wins ties)." },
+  BREAK_FREE:         { label: "Break Free",        bucket: "reaction", brief: "When GRAPPLED: opposed Physical vs grappler. +2 dice per free Manipulator. Ties go to defender (grappler). Costs 1 token (Reaction or Primary).", cost: "+1 P Strain  +1 S Strain", rules: "(Ch 6 L68 / §90) The Grappled Robot can take a Reaction or Priority Action and make a new opposed Physical check. Either side adds +2 dice per free Manipulator. Win = grapple clears, both sides' occupied Manipulators released. Tie = still GRAPPLED (defender wins ties). Action costs tokens as normal (was incorrectly incidental pre-§90 / iter 12 deferral)." },
   THROW:              { label: "Throw",             bucket: "primary", brief: "Range = Reach + Strength × Arms − weight of thrown object. Equipment Sil ≤ 2× thrower Sil.", cost: "+1 P Strain  +1 S Strain", rules: "(Ch 6 §25) Range = Reach + (Frame Strength × Arms used) minus the weight of the thrown object. Equipment Silhouette ceiling = 2 × Robot Silhouette. May throw any Silhouette target if the math kicks out a positive distance and the equipment-Sil cap is respected. A Grappled Robot may be thrown if range > 0 (still respects 2×Sil cap)." },
   SHIELD_RECOVERY:    { label: "Shield Recovery",   bucket: "incidental", brief: "Spend 1 Capacitor → +10 Shields.", cost: "1 Capacitor", rules: "(L417) Shield Recovery: Toggle to permanently spend 1 Capacitor and recover 10 Shield points." },
   STRAIN_CLEAR:       { label: "Strain Clear",      bucket: "incidental", brief: "Spend 1 Capacitor → −1 System Strain.", cost: "1 Capacitor", rules: "(L420) Spend 1 Capacitor (permanently) to remove 1 System Strain." },
@@ -8896,7 +8896,9 @@ function actionPilotStrainCost(k, targetCount = 1, weaponsFired = null) {
     if (weaponsFired != null) return Math.max(1, Number(weaponsFired) || 0);
     return 1;
   }
-  if (k === "CHARGE" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE" || k === "THROW" || k === "INITIATE_GRAPPLE") return 1;
+  // §90: BREAK_FREE bills 1 strain per Ch 6 L68 (was "incidental" / free
+  // pre-§90 — iter 12 deferral).
+  if (k === "CHARGE" || k === "STRAFE" || k === "HIP_SHOT" || k === "QUICK_STRIKE" || k === "PARRY" || k === "BOOST_DODGE" || k === "THROW" || k === "INITIATE_GRAPPLE" || k === "BREAK_FREE") return 1;
   return 0; // STRAIN_VENT cost is Free (Mental check); picker only routes identity
 }
 // Each action whose mechanics include rolling dice maps to a roll
