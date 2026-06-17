@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.89";
+const APP_VERSION = "0.2.90";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -9525,7 +9525,10 @@ handlers["resolve-action"] = ({ id, k }) => {
         r.pilotTokens = (r.pilotTokens || 0) + 1;
         pilotStrainMsg = " +1 PStrain";
       }
-      showToast(`${a.label} — +${_sStrainDelta} SStrain${pilotStrainMsg}.`);
+      // §72b (Tom 2026-06-17): _sStrainDelta was removed when MELEE_ASSAULT
+      // S-Strain billing reverted to flat +1 to match §58 SALVO + Ch 7 L21.
+      // S-Strain is always +1 per action regardless of weapon count.
+      showToast(`${a.label} — +1 SStrain${pilotStrainMsg}.`);
     } else {
       // GRAB (incidental): pick up an adjacent piece of equipment.
       // Per §13 the GRAB action no longer creates a GRAPPLED status;
