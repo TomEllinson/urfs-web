@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.90";
+const APP_VERSION = "0.2.91";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -2499,8 +2499,31 @@ handlers["edit-robot"] = ({ id }) => {
 };
 handlers["delete-robot"] = async ({ id }) => {
   if (!confirm("Delete this robot?")) return;
-  await dbDelete("robots", Number(id));
-  state.robots = state.robots.filter(r => r.id !== Number(id));
+  const rid = Number(id);
+  await dbDelete("robots", rid);
+  state.robots = state.robots.filter(r => r.id !== rid);
+  // §88 (Tom 2026-06-17): scrub orphan robot ID from every force that
+  // referenced this robot. Pre-§88 a deleted robot left a stale id in
+  // force.robotIds, so the force list rendered "N robots / 0 BP" where
+  // N was the orphan count and the BP reducer (~4570, ~6591) silently
+  // skipped the missing robot. Mirrors the equipment-deletion cascade
+  // pattern — when a parent record goes away, every per-record map /
+  // index that references it must be scrubbed in the same transaction.
+  // Also scrub pilotAssignments[rid] (defensive) so a recycled robot ID
+  // can't inherit stale slot assignments from the deleted predecessor.
+  for (const f of (state.forces || [])) {
+    if (!Array.isArray(f.robotIds)) continue;
+    const before = f.robotIds.length;
+    f.robotIds = f.robotIds.filter(robId => robId !== rid);
+    const after = f.robotIds.length;
+    const hadAssign = !!(f.pilotAssignments && f.pilotAssignments[rid]);
+    if (before !== after || hadAssign) {
+      if (f.pilotAssignments && f.pilotAssignments[rid]) {
+        delete f.pilotAssignments[rid];
+      }
+      await dbPut("forces", f);
+    }
+  }
   render();
 };
 
@@ -11974,16 +11997,39 @@ handlers["roller-roll"] = () => {
   let extraAutoRolls = []; // [[r1,r2,...], [r1,r2,...], ...]
   if (rollKind === "RANGED" && r) {
     let autoN = 0;
+    // Linked composite branch — linkedFiringParts is already filtered by
+    // linkedSelectedPartsForAttack() to honor per-part opt-out (see
+    // ~11893-11895), so opted-out parts are naturally absent here. No
+    // additional gate needed.
     for (const p of linkedFiringParts) {
       autoN += (p.keywords || []).filter(x => x === "Auto").length;
     }
+    // §85b-followup (Tom 2026-06-17): honor SALVO standalone opt-out per
+    // weapon. The picker advisory + Pilot-Strain bill already skip
+    // opted-out weapons via salvoWeaponsFiredCount(...,
+    // { includeAutoMultiplier: true }), but the roller's standalone Auto
+    // tally was iterating r.components directly and ignoring
+    // salvoStandaloneSelections — so opting out a standalone Auto weapon
+    // showed correct "N-1 weapons firing" in the picker but still rolled
+    // N+autoExtras dice pools downstream. Mirror the SALVO picker's gate
+    // (~8155-8158): only consult the selection map when k === "SALVO".
+    // STRAFE / HIP_SHOT fire a single weapon by rule (no picker, no
+    // selection map applies).
+    const sasel = state.modal?.data?.salvoStandaloneSelections || {};
+    const isSalvo = state.modal?.data?.k === "SALVO";
     for (const c of (r.components || [])) {
       if (c.isDestroyed) continue;
-      for (const e of (c.equipment || [])) {
+      const cid = c.componentId ?? c.tempId;
+      for (let eqIdx = 0; eqIdx < (c.equipment || []).length; eqIdx++) {
+        const e = c.equipment[eqIdx];
         if (!e || e.isLinked) continue;
         if ((e.armorMax || 0) > 0 && (e.armorCurrent ?? 0) <= 0) continue;
         const kws = e.keywords || [];
         if (!kws.includes("Ranged")) continue;
+        if (isSalvo) {
+          const saKey = `${cid}:${eqIdx}`;
+          if (saKey in sasel && sasel[saKey] === false) continue;
+        }
         autoN += kws.filter(x => x === "Auto").length;
       }
     }
