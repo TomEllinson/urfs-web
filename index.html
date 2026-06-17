@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.86";
+const APP_VERSION = "0.2.88";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -1022,11 +1022,34 @@ function validateThrow(thrower, target) {
 // §27 Minimum Range. External ranged weapons cannot fire below their
 // Silhouette in SU; internal mounts have no min range. Returns the
 // numeric min range in Scale Units.
+//
+// §86 (Tom 2026-06-17, Ch 12 L86): Indirect — "Ignore Lines of Fire;
+// target any legal target within range. Minimum Range becomes 1/3
+// maximum range." The 1/3 floor takes precedence over the normal
+// external-mounted-Sil rule for §27. Max range is sourced via
+// calculateEquipmentStats so all the keyword stacking that drives final
+// range (Ranged base = Sil×3, Scatter override = Sil×2, Extended Range
+// additive, Long Range ×2) is honored — mirrors the §49 Scatter override
+// pattern that overrides the same `range` field.
 function weaponMinRange(weapon) {
   if (!weapon) return 0;
   // No Ranged keyword → no range concept.
   const kw = (weapon.keywords || []).map(s => String(s));
   if (!kw.includes("Ranged")) return 0;
+  // §86 override (Ch 12 L86): Indirect → floor(maxRange / 3). Trust the
+  // weapon's already-computed `.range` when present (loadout-sheet path
+  // and equipment-list chip path both pre-compute via
+  // calculateEquipmentStats); fall back to re-deriving when callers pass
+  // a raw library entry without a top-level range field (e.g. the
+  // deploy-preview perPartStats path at ~13945).
+  if (kw.includes("Indirect")) {
+    let maxR = Number(weapon.range || 0);
+    if (!(maxR > 0) && typeof calculateEquipmentStats === "function") {
+      const s = calculateEquipmentStats(weapon.keywords || [], weapon.silhouette || 1);
+      maxR = s.range || 0;
+    }
+    return maxR > 0 ? Math.floor(maxR / 3) : 0;
+  }
   // Lookup mount type via socket module id.
   const mt = weaponMountType(weapon);
   if (mt === "INTERNAL") return 0;
@@ -8032,6 +8055,139 @@ let renderActionResolve = function (rid, k) {
       <div class="row-gap" style="flex-wrap:wrap">${weaponList}</div>
     `;
   })();
+  // §85b (Tom 2026-06-17, Ch 12 L82): Auto extra Ranged Attack advisory.
+  // For any Ranged action (SALVO / STRAFE / HIP_SHOT) — surface
+  // per-weapon firing counts when at least one Auto-tagged Ranged
+  // weapon is in play. Each Ranged weapon with N× Auto fires 1 + N
+  // times. STRAFE / HIP_SHOT each declare a single firing weapon by
+  // rule; we still surface the count so the player remembers to make
+  // the extra rolls. Linked composite parts and standalone Ranged
+  // equipments are both surveyed; the per-weapon opt-in / opt-out
+  // selections from the linked + standalone banners above are honored
+  // so an opted-out weapon doesn't contribute to the firing count.
+  const _autoFiringsBanner = (() => {
+    if (k !== "SALVO" && k !== "STRAFE" && k !== "HIP_SHOT") return "";
+    const linkedSel = state.modal?.data?.linkedWeaponSelections || {};
+    const sasel = state.modal?.data?.salvoStandaloneSelections || {};
+    const rows = [];
+    let totalExtra = 0;
+    for (const c of (r.components || [])) {
+      if (c.isDestroyed) continue;
+      const cid = c.componentId ?? c.tempId;
+      for (let eqIdx = 0; eqIdx < (c.equipment || []).length; eqIdx++) {
+        const e = c.equipment[eqIdx];
+        if (!e) continue;
+        if ((e.armorMax || 0) > 0 && (e.armorCurrent ?? 0) <= 0) continue;
+        if (e.isLinked && Array.isArray(e.linkedParts)) {
+          for (let partIdx = 0; partIdx < e.linkedParts.length; partIdx++) {
+            const p = e.linkedParts[partIdx];
+            const kws = p.keywords || [];
+            if (!kws.includes("Ranged")) continue;
+            const autoN = kws.filter(x => x === "Auto").length;
+            if (autoN <= 0) continue;
+            // SALVO honors per-part opt-out; STRAFE / HIP_SHOT default-on
+            // (no SALVO-picker selection map applies).
+            if (k === "SALVO") {
+              const key = `${cid}:${eqIdx}:${partIdx}`;
+              const on = !(key in linkedSel) || linkedSel[key] === true;
+              if (!on) continue;
+            }
+            rows.push({ name: `${e.name || "Linked"} → ${p.partName || "part"}`, autoN });
+            totalExtra += autoN;
+          }
+        } else {
+          const kws = e.keywords || [];
+          if (!kws.includes("Ranged")) continue;
+          const autoN = kws.filter(x => x === "Auto").length;
+          if (autoN <= 0) continue;
+          if (k === "SALVO") {
+            const saKey = `${cid}:${eqIdx}`;
+            const on = !(saKey in sasel) || sasel[saKey] === true;
+            if (!on) continue;
+          }
+          rows.push({ name: e.name || "Weapon", autoN });
+          totalExtra += autoN;
+        }
+      }
+    }
+    if (rows.length === 0) return "";
+    const rowsHtml = rows
+      .map(({ name, autoN }) => `<span class="chip" style="font-size:10px">${escapeHtml(name)}: 1 + ${autoN} = ${1 + autoN} fires</span>`)
+      .join(" ");
+    const intro = k === "SALVO"
+      ? `Each Auto weapon makes 1 base + N extra Ranged Attacks per fire (Ch 12 L82). Pilot Strain bill (§58) includes these extra firings.`
+      : k === "STRAFE"
+        ? `STRAFE's single Ranged Attack — Auto adds extra rolls (1 + N). Roller will auto-fire the extra rolls; sum hits for the attack.`
+        : `HIP_SHOT's single Ranged Attack — Auto adds extra rolls (1 + N). Roller will auto-fire the extra rolls; sum hits for the attack.`;
+    return `
+      <div class="label-small label-cyan" style="margin-top:8px">⚡ AUTO · extra Ranged Attacks per instance</div>
+      <p style="font-size:11px; margin:4px 0">${intro} Total extra rolls: <strong>+${totalExtra}</strong>.</p>
+      <div class="row-gap" style="flex-wrap:wrap">${rowsHtml}</div>
+    `;
+  })();
+  // §86 (Tom 2026-06-17, Ch 12 L86): Indirect — "Ignore Lines of Fire;
+  // target any legal target within range. Minimum Range becomes 1/3
+  // maximum range." Webapp has no positional state, so LoF and over-
+  // cover resolution sit at the table. Surface an advisory banner on
+  // SALVO / STRAFE / HIP_SHOT when ANY equipped Ranged weapon (standalone
+  // or linked part) carries Indirect, so the player remembers both
+  // sub-mechanics: ignore LoF AND the per-weapon min-range floor (which
+  // is also reflected on each weapon's range chip via weaponMinRange).
+  // No auto-toggle / no dice modifier — table-resolved per the rule.
+  // Mirrors the §85b _autoFiringsBanner walk for symmetry.
+  const _indirectBanner = (() => {
+    if (k !== "SALVO" && k !== "STRAFE" && k !== "HIP_SHOT") return "";
+    const linkedSel = state.modal?.data?.linkedWeaponSelections || {};
+    const sasel = state.modal?.data?.salvoStandaloneSelections || {};
+    const rows = [];
+    for (const c of (r.components || [])) {
+      if (c.isDestroyed) continue;
+      const cid = c.componentId ?? c.tempId;
+      for (let eqIdx = 0; eqIdx < (c.equipment || []).length; eqIdx++) {
+        const e = c.equipment[eqIdx];
+        if (!e) continue;
+        if ((e.armorMax || 0) > 0 && (e.armorCurrent ?? 0) <= 0) continue;
+        if (e.isLinked && Array.isArray(e.linkedParts)) {
+          for (let partIdx = 0; partIdx < e.linkedParts.length; partIdx++) {
+            const p = e.linkedParts[partIdx];
+            const kws = p.keywords || [];
+            if (!kws.includes("Ranged")) continue;
+            if (!kws.includes("Indirect")) continue;
+            if (k === "SALVO") {
+              const key = `${cid}:${eqIdx}:${partIdx}`;
+              const on = !(key in linkedSel) || linkedSel[key] === true;
+              if (!on) continue;
+            }
+            const mn = weaponMinRange({ ...p, socketModuleId: e.socketModuleId });
+            const mx = (typeof calculateEquipmentStats === "function")
+              ? (calculateEquipmentStats(kws, p.silhouette || 1).range || 0)
+              : 0;
+            rows.push({ name: `${e.name || "Linked"} → ${p.partName || "part"}`, mn, mx });
+          }
+        } else {
+          const kws = e.keywords || [];
+          if (!kws.includes("Ranged")) continue;
+          if (!kws.includes("Indirect")) continue;
+          if (k === "SALVO") {
+            const saKey = `${cid}:${eqIdx}`;
+            const on = !(saKey in sasel) || sasel[saKey] === true;
+            if (!on) continue;
+          }
+          const mn = weaponMinRange(e);
+          rows.push({ name: e.name || "Weapon", mn, mx: e.range || 0 });
+        }
+      }
+    }
+    if (rows.length === 0) return "";
+    const rowsHtml = rows
+      .map(({ name, mn, mx }) => `<span class="chip" style="font-size:10px">${escapeHtml(name)}: min ${mn} / max ${mx}</span>`)
+      .join(" ");
+    return `
+      <div class="label-small label-amber" style="margin-top:8px">🎯 INDIRECT · ignore LoF / over cover (table-resolved)</div>
+      <p style="font-size:11px; margin:4px 0">Indirect: ignore Lines of Fire / over cover; min range becomes ⅓ of max (resolve at table). §86 / Ch 12 L86.</p>
+      <div class="row-gap" style="flex-wrap:wrap">${rowsHtml}</div>
+    `;
+  })();
   // §72 (Tom 2026-06-17): MELEE_ASSAULT mirror of iter-46's standalone
   // Ranged opt-in. Same shape — checkbox list of standalone Melee
   // equipments with default-on, opt-out by clicking. Without this, a
@@ -8127,6 +8283,8 @@ let renderActionResolve = function (rid, k) {
     ${_gunslingerBanner}
     ${_linkedEquipBanner}
     ${_standaloneRangedBanner}
+    ${_autoFiringsBanner}
+    ${_indirectBanner}
     ${_standaloneMeleeBanner}
     ${(() => {
       if (!actionShowsPilotPicker(k)) return "";
@@ -8185,6 +8343,12 @@ let renderActionResolve = function (rid, k) {
             r,
             state.modal?.data?.linkedWeaponSelections,
             state.modal?.data?.salvoStandaloneSelections,
+            "Ranged",
+            // §85b (Tom 2026-06-17, Ch 12 L82): include Auto extra
+            // firings in the SALVO weapons-fired count so the Pilot
+            // Strain hint (§58 per-weapon bill) reflects the actual
+            // attack count (1 base + N Auto instances per weapon).
+            { includeAutoMultiplier: true },
           )
         : 0;
       const _meleeWeapons = k === "MELEE_ASSAULT"
@@ -8564,11 +8728,21 @@ function robotHasMeleeWeapon(r) {
 // unchanged); MELEE_ASSAULT passes "Melee" to count the robot's melee
 // weapons instead. The keyword test is case-insensitive on both sides
 // so author input ("Melee", "melee", "Ranged") all match.
-function salvoWeaponsFiredCount(r, linkedSelections, standaloneSelections, kind = "Ranged") {
+function salvoWeaponsFiredCount(r, linkedSelections, standaloneSelections, kind = "Ranged", opts = null) {
   if (!r) return 0;
   const sel = linkedSelections || {};
   const sasel = standaloneSelections || {};
   const wantKw = String(kind || "Ranged").toLowerCase();
+  // §85b (Tom 2026-06-17, Ch 12 L82): Auto (Ranged) — "May make one
+  // additional Ranged Attack per instance of this keyword when firing."
+  // When `opts.includeAutoMultiplier` is true, each Ranged firing
+  // weapon with N× Auto contributes (1 + N) firings to the count
+  // instead of 1, so Pilot Strain bills correctly (§58 per-weapon-fired)
+  // and the chip-pool tally upstream reflects the actual fire-count.
+  // Default false preserves the pre-§85b "1 firing per weapon" reading
+  // for any caller that still passes the old 4-arg signature.
+  // Melee is unchanged — Auto is a Ranged-only keyword per §85a.
+  const autoMul = !!(opts && opts.includeAutoMultiplier) && wantKw === "ranged";
   let count = 0;
   for (const c of (r.components || [])) {
     if (c.isDestroyed) continue;
@@ -8588,7 +8762,13 @@ function salvoWeaponsFiredCount(r, linkedSelections, standaloneSelections, kind 
           if (!partKw.includes(wantKw)) continue;
           const key = `${cid}:${eqIdx}:${partIdx}`;
           const on = !(key in sel) || sel[key] === true;
-          if (on) count++;
+          if (on) {
+            // §85b: + 1 firing per Auto instance on this part.
+            const autoN = autoMul
+              ? (p.keywords || []).filter(x => x === "Auto").length
+              : 0;
+            count += 1 + autoN;
+          }
         }
       } else {
         const kw = (e.keywords || []).map(s => String(s).toLowerCase());
@@ -8598,7 +8778,13 @@ function salvoWeaponsFiredCount(r, linkedSelections, standaloneSelections, kind 
           // false skips the weapon from the count.
           const saKey = `${cid}:${eqIdx}`;
           const on = !(saKey in sasel) || sasel[saKey] === true;
-          if (on) count++;
+          if (on) {
+            // §85b: + 1 firing per Auto instance on this standalone weapon.
+            const autoN = autoMul
+              ? (e.keywords || []).filter(x => x === "Auto").length
+              : 0;
+            count += 1 + autoN;
+          }
         }
       }
     }
@@ -9208,6 +9394,12 @@ handlers["resolve-action"] = ({ id, k }) => {
             r,
             state.modal?.data?.linkedWeaponSelections,
             state.modal?.data?.salvoStandaloneSelections,
+            "Ranged",
+            // §85b (Tom 2026-06-17, Ch 12 L82): Auto multiplier on
+            // RESOLVE so the per-weapon Pilot Strain bill (§58) charges
+            // 1 + N firings per Auto N weapon. Mirrors the picker hint
+            // computed at ~index.html:8184.
+            { includeAutoMultiplier: true },
           );
         } else if (k === "MELEE_ASSAULT") {
           weaponsFiredArg = salvoWeaponsFiredCount(
@@ -11360,11 +11552,47 @@ let renderDiceRoller = function (rid, k) {
           <p class="label-small label-amber" style="margin-top:6px">⚠ Pool reduced to 0 — target Robot immune.</p>
           ${rollKind === "RANGED" ? `<p style="font-size:12px; color:var(--on-surface-muted); margin-top:4px">Cover terrain in the line of fire CAN be damaged. Resolve cover damage at the table (Ch 6 L15).</p>` : `<p style="font-size:12px; color:var(--on-surface-muted); margin-top:4px">Attack whiffs.</p>`}
         ` : `
-          <div class="row-gap" style="flex-wrap:wrap; margin-top:6px">
-            ${_roller.lastRoll.rolls.map(v => `<span class="chip ${v >= _roller.lastRoll.threshold ? "green" : "muted"}" style="font-size:14px; padding:4px 8px">${v}</span>`).join("")}
-          </div>
+          ${(() => {
+            // §85b (Tom 2026-06-17, Ch 12 L82): Auto extra rolls.
+            // When at least one Auto-tagged Ranged weapon fired, the
+            // base attack rolls + each extra Auto roll render as
+            // separate rows so the player can verify the breakdown.
+            // Sum is the headline hits count below. Falls back to the
+            // legacy single-row render when extraAutoRolls is empty.
+            const extras = _roller.lastRoll.extraAutoRolls || [];
+            if (extras.length === 0) {
+              return `
+                <div class="row-gap" style="flex-wrap:wrap; margin-top:6px">
+                  ${_roller.lastRoll.rolls.map(v => `<span class="chip ${v >= _roller.lastRoll.threshold ? "green" : "muted"}" style="font-size:14px; padding:4px 8px">${v}</span>`).join("")}
+                </div>
+              `;
+            }
+            const baseHits = _roller.lastRoll.baseHits ?? _roller.lastRoll.rolls.filter(v => v >= _roller.lastRoll.threshold).length;
+            const renderRoll = (rollArr, label, hitsCount) => `
+              <div style="margin-top:6px">
+                <div class="label-small" style="font-size:10px; color:var(--on-surface-muted)">${label} — <strong>${hitsCount} hit${hitsCount === 1 ? '' : 's'}</strong></div>
+                <div class="row-gap" style="flex-wrap:wrap; margin-top:2px">
+                  ${rollArr.map(v => `<span class="chip ${v >= _roller.lastRoll.threshold ? "green" : "muted"}" style="font-size:14px; padding:4px 8px">${v}</span>`).join("")}
+                </div>
+              </div>
+            `;
+            const baseBlock = renderRoll(_roller.lastRoll.rolls, "Roll 1 (base)", baseHits);
+            const extraBlocks = extras.map((arr, i) => {
+              const hc = arr.filter(v => v >= _roller.lastRoll.threshold).length;
+              return renderRoll(arr, `Roll ${i + 2} (Auto)`, hc);
+            }).join("");
+            return `
+              <div class="card" style="margin-top:6px; padding:8px; border-color:var(--amber, #ffa13b)">
+                <div class="label-small label-amber">⚡ AUTO · ${extras.length} extra Ranged Attack${extras.length === 1 ? '' : 's'} per instance (Ch 12 L82)</div>
+                <p class="meta" style="font-size:10px; margin:2px 0 4px 0">Each extra roll uses the same dice pool (chip modifiers included). Hits sum across all rolls.</p>
+                ${baseBlock}
+                ${extraBlocks}
+              </div>
+            `;
+          })()}
           <p style="margin-top:8px; text-align:center; font-size:20px; font-weight:700">
             ${_roller.lastRoll.hits} HIT${_roller.lastRoll.hits === 1 ? "" : "S"}
+            ${(_roller.lastRoll.extraAutoRolls || []).length > 0 ? `<span class="meta" style="font-size:11px; font-weight:400; display:block">(base ${_roller.lastRoll.baseHits ?? 0} + Auto ${(_roller.lastRoll.hits - (_roller.lastRoll.baseHits ?? 0))} across ${1 + (_roller.lastRoll.extraAutoRolls || []).length} rolls)</span>` : ""}
           </p>
           ${(() => {
             // §42 (Tom 2026-06-17): Run / MOVE optional Physical check — extra
@@ -11401,6 +11629,12 @@ let renderDiceRoller = function (rid, k) {
             // it manually at the table because the true difficulty depends
             // on the target's effective Silhouette which the roller doesn't
             // hard-pin. The pool +N bonus is already in the dice chip.
+            //
+            // §85b (Tom 2026-06-17): with Auto extra rolls, each roll is
+            // its OWN attack — net hits are computed per-roll, not on the
+            // sum. Each attack's +N damage stacks independently. We surface
+            // both the per-roll breakdown (when extras exist) and the
+            // legacy single-roll math (when extras is empty).
             const ac = _roller.lastRoll?.attackContext;
             if (!ac || _roller.lastRoll.hits <= 0) return "";
             if (ac.rollKind !== "RANGED") return "";
@@ -11410,12 +11644,26 @@ let renderDiceRoller = function (rid, k) {
             // Multi-target = penalty case (no damage bonus). Only the
             // single-target case adds +N damage per net hit.
             if (tCount > 1) return "";
-            // Baseline net hits = hits - 1 (1 hit required for a same-Sil
-            // attack). The player adjusts at the table per the Sil-
-            // comparison chip if their hit-target differs.
-            const netHitsBaseline = Math.max(0, _roller.lastRoll.hits - 1);
-            const dmgBaseline = autoN * netHitsBaseline;
-            return `<p class="label-small label-amber" style="text-align:center; margin-top:4px">⚡ AUTO (×${autoN}) — single-target: +<strong>${autoN}</strong> Damage per net hit. Baseline net hits = ${netHitsBaseline} (hits − 1) → +<strong>${dmgBaseline}</strong> Damage. Adjust by your Sil-comparison hit-target at the table. §85a / Ch 12 L82</p>`;
+            const extras = _roller.lastRoll.extraAutoRolls || [];
+            if (extras.length === 0) {
+              // Pre-§85b path: a single attack roll. Baseline net hits =
+              // hits - 1 (1 hit required for a same-Sil attack).
+              const netHitsBaseline = Math.max(0, _roller.lastRoll.hits - 1);
+              const dmgBaseline = autoN * netHitsBaseline;
+              return `<p class="label-small label-amber" style="text-align:center; margin-top:4px">⚡ AUTO (×${autoN}) — single-target: +<strong>${autoN}</strong> Damage per net hit. Baseline net hits = ${netHitsBaseline} (hits − 1) → +<strong>${dmgBaseline}</strong> Damage. Adjust by your Sil-comparison hit-target at the table. §85a / Ch 12 L82</p>`;
+            }
+            // §85b: per-attack damage. Each attack's net hits = its hits −
+            // 1 (clamped ≥ 0). Sum across base + extras for the headline.
+            const baseRolls = _roller.lastRoll.rolls;
+            const baseRollHits = baseRolls.filter(v => v >= _roller.lastRoll.threshold).length;
+            const perAttackHits = [baseRollHits, ...extras.map(arr => arr.filter(v => v >= _roller.lastRoll.threshold).length)];
+            const perAttackNet = perAttackHits.map(h => Math.max(0, h - 1));
+            const perAttackDmg = perAttackNet.map(n => autoN * n);
+            const dmgTotal = perAttackDmg.reduce((s, x) => s + x, 0);
+            const breakdown = perAttackHits
+              .map((h, i) => `Roll ${i + 1}: ${h} hit${h === 1 ? '' : 's'} → ${perAttackNet[i]} net → +${perAttackDmg[i]} dmg`)
+              .join("; ");
+            return `<p class="label-small label-amber" style="text-align:center; margin-top:4px">⚡ AUTO (×${autoN}) — single-target per-attack: +<strong>${autoN}</strong> Damage per net hit. <br><span style="font-size:10px">${escapeHtml(breakdown)}</span><br>Baseline total: +<strong>${dmgTotal}</strong> Damage. Adjust by Sil-comparison at the table. §85a / §85b / Ch 12 L82</p>`;
           })()}
           ${(() => {
             // Iter 22 (Tom 2026-06-17): Linked composite per-weapon
@@ -11653,7 +11901,51 @@ handlers["roller-roll"] = () => {
   }
   const rolls = [];
   for (let i = 0; i < total; i++) rolls.push(1 + Math.floor(Math.random() * 6));
-  const hits = rolls.filter(v => v >= _roller.threshold).length;
+  const baseHits = rolls.filter(v => v >= _roller.threshold).length;
+  // §85b (Tom 2026-06-17, Ch 12 L82): Auto — "May make one additional
+  // Ranged Attack per instance of this keyword when firing." Tally
+  // Auto instances across firing Linked composite parts + non-Linked
+  // Ranged equipment (mirrors §85a / §82 Penetrating / §84 Kinetic
+  // tally pattern), then auto-fire that many EXTRA dice pools of the
+  // same size as the base, separately so per-roll hits surface in the
+  // result panel ("Roll 1 (base): X, Roll 2 (Auto): Y, ..., Total =
+  // X+Y+..."). Each extra roll uses the same total pool size — the §85a
+  // dice modifier chips are already baked into `total`, so the extra
+  // rolls inherit them automatically.
+  //
+  // STRAFE / HIP_SHOT also fire a single Ranged Attack and benefit
+  // from Auto extra rolls — gated on rollKind === "RANGED" not action
+  // key so any Ranged action with an Auto-tagged weapon picks them up.
+  let extraAutoRolls = []; // [[r1,r2,...], [r1,r2,...], ...]
+  if (rollKind === "RANGED" && r) {
+    let autoN = 0;
+    for (const p of linkedFiringParts) {
+      autoN += (p.keywords || []).filter(x => x === "Auto").length;
+    }
+    for (const c of (r.components || [])) {
+      if (c.isDestroyed) continue;
+      for (const e of (c.equipment || [])) {
+        if (!e || e.isLinked) continue;
+        if ((e.armorMax || 0) > 0 && (e.armorCurrent ?? 0) <= 0) continue;
+        const kws = e.keywords || [];
+        if (!kws.includes("Ranged")) continue;
+        autoN += kws.filter(x => x === "Auto").length;
+      }
+    }
+    for (let i = 0; i < autoN; i++) {
+      const extra = [];
+      for (let j = 0; j < total; j++) extra.push(1 + Math.floor(Math.random() * 6));
+      extraAutoRolls.push(extra);
+    }
+  }
+  // Total hits across base + Auto extra rolls. The result panel renders
+  // a per-roll breakdown when extraAutoRolls is non-empty; otherwise
+  // it falls back to the legacy single-row render.
+  const extraHits = extraAutoRolls.reduce(
+    (s, arr) => s + arr.filter(v => v >= _roller.threshold).length,
+    0,
+  );
+  const hits = baseHits + extraHits;
   // Iter 22: stash per-part damage on lastRoll so the result panel can
   // list "Weapon A → X dmg, Weapon B → Y dmg, total Z" inline. Only
   // populated on attack rolls with > 0 hits and a non-empty firing-part
@@ -11815,7 +12107,19 @@ handlers["roller-roll"] = () => {
       autoCount,
     };
   }
-  _roller.lastRoll = { rolls, hits, threshold: _roller.threshold, linkedDamage, attackContext };
+  _roller.lastRoll = {
+    rolls,
+    hits,
+    threshold: _roller.threshold,
+    linkedDamage,
+    attackContext,
+    // §85b (Tom 2026-06-17, Ch 12 L82): Auto extra rolls so the result
+    // panel can render "Roll 1 (base): X hits, Roll 2 (Auto): Y hits,
+    // ..." breakdown. baseHits is the headline count; extraAutoRolls
+    // is the per-extra-roll dice array. Empty when no Auto weapons fire.
+    baseHits,
+    extraAutoRolls,
+  };
   // §34: zero-hit Ranged or Melee attack passes Priority to the opponent
   // (only if the rolling Robot currently holds it). Scope: ONLY attack
   // rolls (RANGED / MELEE); Fortitude / Shutdown / Physical / Mental
@@ -12358,7 +12662,7 @@ let renderLoadoutSheet = function (rid) {
         <div class="row-gap">
           ${broken ? `<span class="chip red">BROKEN</span>` : ""}
           ${(e.damage||0)>0 ? `<span class="chip">DMG ${e.damage}${e.isLinked ? "*" : ""}</span>` : ""}
-          ${(e.range||0)>0  ? `<span class="chip muted">RNG ${e.range}${(() => { const mn = weaponMinRange(e); return mn > 0 ? ` (min ${mn})` : ""; })()}</span>` : ""}
+          ${(e.range||0)>0  ? `<span class="chip muted">RNG ${e.range}${(() => { const mn = weaponMinRange(e); if (mn <= 0) return ""; const _isIndirect = (e.keywords || []).includes("Indirect"); return _isIndirect ? ` (min ${mn} / Indirect)` : ` (min ${mn})`; })()}</span>` : ""}
           ${(e.armorMax||0)>0 ? `<span class="chip ${broken?'red':e.armorCurrent<e.armorMax?'amber':'muted'}">ARM ${e.armorCurrent}/${e.armorMax}</span>` : ""}
           ${(e.maxAmmo||0)>0 ? `<span class="chip muted">AMMO ${e.ammoRemaining??e.maxAmmo}/${e.maxAmmo}</span>` : ""}
         </div>
@@ -13904,7 +14208,13 @@ function renderRobotDeployPreview(rid, fid) {
     ${p.weapons.map(w => {
       const top3 = (w.keywords || []).slice(0, 3).join(", ");
       const moreKw = w.keywords.length > 3 ? ` <span class="meta" style="font-size:10px">+${w.keywords.length - 3} more</span>` : "";
-      const minRng = w.minRange > 0 ? ` (min ${w.minRange})` : "";
+      // §86 (Ch 12 L86): Indirect overrides min range to floor(max/3) and
+      // ignores Lines of Fire. The min-range value coming in via
+      // w.minRange already reflects the override (weaponMinRange handles
+      // it). The chip / note text is tagged so the player sees WHY the
+      // floor is set higher than the Sil rule would imply.
+      const _isIndirect = (w.keywords || []).includes("Indirect");
+      const minRng = w.minRange > 0 ? (_isIndirect ? ` (min ${w.minRange} / Indirect)` : ` (min ${w.minRange})`) : "";
       return `<div class="card tight" style="margin-bottom:6px">
         <div class="row-between">
           <strong>${escapeHtml(w.name)}${w.linked ? ' <span class="chip" style="font-size:9px; margin-left:4px">🔗</span>' : ""}</strong>
@@ -13916,7 +14226,9 @@ function renderRobotDeployPreview(rid, fid) {
         </div>
         <div class="meta" style="font-size:11px">${escapeHtml(w.componentName)}${top3 ? ` · ${escapeHtml(top3)}${moreKw}` : ""}</div>
         ${w.overKw ? `<div class="meta" style="font-size:11px; color:var(--amber,#f59e0b)">⚠ ${w.kwCount}/${w.kwCap} keywords (Ch 12 L6: max 3 × Sil)</div>` : ""}
-        ${w.minRange > 0 ? `<div class="meta" style="font-size:10px; opacity:0.75">Min range ${w.minRange} SU — external ranged weapons cannot fire below their Silhouette (§27).</div>` : ""}
+        ${w.minRange > 0 ? (_isIndirect
+          ? `<div class="meta" style="font-size:10px; opacity:0.75">Min range ${w.minRange} SU — §86 Indirect overrides §27: min = floor(max range / 3). Ignores Lines of Fire (resolve at table).</div>`
+          : `<div class="meta" style="font-size:10px; opacity:0.75">Min range ${w.minRange} SU — external ranged weapons cannot fire below their Silhouette (§27).</div>`) : ""}
       </div>`;
     }).join("")}
   `;
