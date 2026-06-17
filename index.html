@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.85";
+const APP_VERSION = "0.2.86";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -10019,6 +10019,65 @@ function rollerComputeChips(r, rollKind, actionKey = null) {
       }
     }
   }
+  // §85a (Tom 2026-06-17, Ch 12 L82): Auto (Ranged) — dice modifier chip.
+  // Single-target SALVO with Auto N: +N dice on the attack pool AND +N
+  // damage per net hit (banner surfaced post-roll). Multi-target SALVO:
+  // -1 die per target past the first per instance per rulebook (the
+  // canonical line is "-1 die from the attack pool for every target past
+  // the first" — flat -1 per extra target, not per-instance × per-target).
+  // SALVO-only because STRAFE / HIP_SHOT fire a single Ranged Attack
+  // (no multi-target case) and the chip's single-target +N also fires on
+  // those; future patch can broaden. The §85b "extra Ranged Attack per
+  // instance" sub-mechanic is deferred (needs new attack-flow scaffolding).
+  // Tally instances across firing Linked composite parts + non-Linked
+  // Ranged equipment — mirrors the §82 Penetrating + §84 Kinetic tally
+  // pattern used in roller-roll attackContext setup.
+  if (rollKind === "RANGED" && actionKey === "SALVO" && r) {
+    const linkedSel = state.modal?.data?.linkedWeaponSelections || {};
+    const firingParts = linkedSelectedPartsForAttack(r, "RANGED", linkedSel);
+    let autoCount = 0;
+    for (const p of firingParts) {
+      const kws = p.keywords || [];
+      autoCount += kws.filter(x => x === "Auto").length;
+    }
+    for (const c of (r.components || [])) {
+      if (c.isDestroyed) continue;
+      for (const e of (c.equipment || [])) {
+        if (!e || e.isLinked) continue;
+        if ((e.armorMax || 0) > 0 && (e.armorCurrent ?? 0) <= 0) continue;
+        const kws = e.keywords || [];
+        if (!kws.includes("Ranged")) continue;
+        autoCount += kws.filter(x => x === "Auto").length;
+      }
+    }
+    if (autoCount > 0) {
+      const tids = state.modal?.data?.targetIds || [];
+      const targetCount = tids.length;
+      if (targetCount <= 1) {
+        // Single-target (or unpicked default = single): +autoCount dice +
+        // +autoCount damage per net hit. Auto-enable so the pool reflects
+        // the bonus by default.
+        chips.push({
+          id: "auto-single",
+          label: `+${autoCount} AUTO · single-target`,
+          dice: autoCount,
+          hint: `Auto (×${autoCount}): +${autoCount} dice on the attack AND +${autoCount} Damage per net hit (hits beyond difficulty). §85a / Ch 12 L82.`,
+        });
+        if (_roller.chips["auto-single"] === undefined) _roller.chips["auto-single"] = true;
+      } else {
+        // Multi-target: -1 die per target past the first (rulebook L82 is
+        // flat per-target, not per Auto-instance per target).
+        const penalty = targetCount - 1;
+        chips.push({
+          id: "auto-multi",
+          label: `−${penalty} AUTO · multi-target (${targetCount} targets)`,
+          dice: -penalty,
+          hint: `Auto firing at ${targetCount} targets → −1 die per target past the first = −${penalty} dice. §85a / Ch 12 L82.`,
+        });
+        if (_roller.chips["auto-multi"] === undefined) _roller.chips["auto-multi"] = true;
+      }
+    }
+  }
   return chips;
 }
 
@@ -11332,6 +11391,33 @@ let renderDiceRoller = function (rid, k) {
             return `<p class="label-small label-amber" style="text-align:center; margin-top:4px">⚡ INERTIA IMPACT — Apply Damage on target, pick TYPE <strong>"Inertia (Melee)"</strong> (score <strong>${inr}</strong>). Per-pilot Fortitude auto-enqueues on cockpit hit. §50 / Ch 6 L29</p>`;
           })()}
           ${(() => {
+            // §85a (Tom 2026-06-17, Ch 12 L82): Auto single-target damage
+            // banner. When firing on a single target, Auto adds +1 Damage
+            // per NET HIT per instance (net hits = hits beyond difficulty,
+            // i.e. hits past 1 + Sil-comparison penalty, see Ch 6 L11409).
+            // The webapp doesn't auto-resolve damage mid-roll — we surface
+            // the formula + a live preview using the threshold-based net
+            // hit count (hits - 1) as a baseline, but the player applies
+            // it manually at the table because the true difficulty depends
+            // on the target's effective Silhouette which the roller doesn't
+            // hard-pin. The pool +N bonus is already in the dice chip.
+            const ac = _roller.lastRoll?.attackContext;
+            if (!ac || _roller.lastRoll.hits <= 0) return "";
+            if (ac.rollKind !== "RANGED") return "";
+            const autoN = Number(ac.autoCount || 0);
+            if (autoN <= 0) return "";
+            const tCount = (ac.targetIds || []).length;
+            // Multi-target = penalty case (no damage bonus). Only the
+            // single-target case adds +N damage per net hit.
+            if (tCount > 1) return "";
+            // Baseline net hits = hits - 1 (1 hit required for a same-Sil
+            // attack). The player adjusts at the table per the Sil-
+            // comparison chip if their hit-target differs.
+            const netHitsBaseline = Math.max(0, _roller.lastRoll.hits - 1);
+            const dmgBaseline = autoN * netHitsBaseline;
+            return `<p class="label-small label-amber" style="text-align:center; margin-top:4px">⚡ AUTO (×${autoN}) — single-target: +<strong>${autoN}</strong> Damage per net hit. Baseline net hits = ${netHitsBaseline} (hits − 1) → +<strong>${dmgBaseline}</strong> Damage. Adjust by your Sil-comparison hit-target at the table. §85a / Ch 12 L82</p>`;
+          })()}
+          ${(() => {
             // Iter 22 (Tom 2026-06-17): Linked composite per-weapon
             // damage list. §14: "Linked Weapons of the same type can fire
             // with one Attack Check but deal damage as separate
@@ -11381,6 +11467,15 @@ let renderDiceRoller = function (rid, k) {
             if (ac.scatter) chips.push("Scatter");
             if (ac.penetrating) chips.push(`Penetrating (bypass ${ac.bypass})`);
             if (ac.inertiaScore > 0) chips.push(`Inertia (${ac.inertiaScore})`);
+            // §85a (Tom 2026-06-17, Ch 12 L82): Auto single-target +N damage
+            // per net hit is INFORMATIONAL on the pre-fill summary — the
+            // damage banner above tells the player the total; here it's
+            // surfaced so they remember to add it on apply.
+            const _autoN = Number(ac.autoCount || 0);
+            const _autoTids = (ac.targetIds || []).length;
+            if (_autoN > 0 && _autoTids <= 1 && ac.rollKind === "RANGED") {
+              chips.push(`Auto ×${_autoN} (+${_autoN}/net hit)`);
+            }
             const chipNote = chips.length > 0
               ? `<p class="meta" style="font-size:11px; margin:2px 0 6px 0">Pre-fills: ${chips.map(escapeHtml).join(" · ")}</p>`
               : `<p class="meta" style="font-size:11px; margin:2px 0 6px 0">No keyword flags to inherit — opens with default settings.</p>`;
@@ -11682,6 +11777,30 @@ handlers["roller-roll"] = () => {
       // surfaces it. For Melee the bonus stacks on top of attacker Inertia.
       attackerInertia += inertiaBonus;
     }
+    // §85a (Tom 2026-06-17, Ch 12 L82): Auto (Ranged) — tally instances
+    // across firing weapons. Single-target = +N dice + N damage / net hit.
+    // Multi-target = -1 die per target past the first. The "extra Ranged
+    // Attack per instance" sub-mechanic is §85b (deferred — needs new
+    // attack-flow scaffolding). Sum instances across Linked composite
+    // firing parts AND non-Linked Ranged equipment, mirroring the
+    // Penetrating + Kinetic tally pattern above.
+    let autoCount = 0;
+    if (rollKind === "RANGED") {
+      for (const p of linkedFiringParts) {
+        const kws = p.keywords || [];
+        autoCount += kws.filter(x => x === "Auto").length;
+      }
+      for (const c of (r.components || [])) {
+        if (c.isDestroyed) continue;
+        for (const e of (c.equipment || [])) {
+          if (!e || e.isLinked) continue;
+          if ((e.armorMax || 0) > 0 && (e.armorCurrent ?? 0) <= 0) continue;
+          const kws = e.keywords || [];
+          if (!kws.includes("Ranged")) continue;
+          autoCount += kws.filter(x => x === "Auto").length;
+        }
+      }
+    }
     const tidsCopy = Array.isArray(state.modal?.data?.targetIds)
       ? [...state.modal.data.targetIds]
       : [];
@@ -11693,6 +11812,7 @@ handlers["roller-roll"] = () => {
       penetrating: totalPenetratingBypass > 0,
       bypass: totalPenetratingBypass,
       inertiaScore: attackerInertia,
+      autoCount,
     };
   }
   _roller.lastRoll = { rolls, hits, threshold: _roller.threshold, linkedDamage, attackContext };
