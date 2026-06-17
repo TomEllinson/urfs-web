@@ -715,7 +715,7 @@
 <div id="toast-host"></div>
 <div id="onboarding-overlay" style="display:none"></div>
 <script>
-const APP_VERSION = "0.2.91";
+const APP_VERSION = "0.2.92";
 // ────────────────────────────────────────────────────────────────────
 // URFS Web — single-file build.
 //
@@ -17035,6 +17035,300 @@ window.__perf = function () {
     }
   }
   return measurements;
+};
+
+// §89 pre-ship regression harness. Call __actionSmoke() from devtools
+// console to verify every action handler resolves cleanly. Catches the
+// §72b-class bug (ReferenceError after controller edit). See also __perf.
+//
+// Builds a synthetic in-memory battle (1 robot, 1 pilot, 1 ranged + 1
+// melee weapon), iterates every key in ACTIONS, fires the resolve-action
+// handler twice per key (picker path + manual path = ~64 invocations),
+// captures any thrown errors, then restores activeBattle / modal /
+// pilots / _pickedPilot to their original values. dbPut is stubbed for
+// the duration so the synthetic fixture never reaches IndexedDB.
+// Uses handlers._unguarded["resolve-action"] to bypass the 250ms
+// rapid-click debounce that would otherwise drop calls 2..N.
+window.__actionSmoke = function () {
+  // ── Save state for restoration ──
+  const origBattle = state.activeBattle;
+  const origModal = state.modal;
+  const origPilots = state.pilots;
+  const origDbPut = window.dbPut || null;
+  const origOnerror = window.onerror;
+  const origOnRej = window.onunhandledrejection;
+  const origActivePriority = state.activePriorityRobotId;
+  const origSkipRedirect = state.skipRedirectCheck;
+
+  // Stub dbPut so the synthetic battle never reaches IndexedDB.
+  // The handler calls dbPut("battles", state.activeBattle) at the tail of
+  // every resolve. We swallow it. dbPut is a module-level function so we
+  // overwrite via the function binding; restore in the finally block.
+  const _stubDbPut = async function () { return undefined; };
+  // eslint-disable-next-line no-global-assign
+  dbPut = _stubDbPut;
+
+  // ── Build synthetic fixture ──
+  const TEST_ROBOT_ID = 999999;
+  const TEST_PILOT_ID = 999998;
+  const TEST_CID = "test-cockpit";
+  const synthPilot = {
+    id: TEST_PILOT_ID,
+    name: "TestPilot",
+    physical: 3,
+    mental: 4,
+    talents: [],
+  };
+  const synthPilotKey = `${TEST_CID}:0:0`;
+
+  // Minimal battle robot — fields drawn from buildBattleRobotState shape
+  // (index.html:2068) plus everything the resolve-action handler reads
+  // along its various branches. Two equipment items: one Ranged (for
+  // SALVO / STRAFE / HIP_SHOT) and one Melee (for MELEE_ASSAULT /
+  // CHARGE / QUICK_STRIKE / PARRY). Components include a structural
+  // body + a manipulator arm so countFreeManipulators() returns > 0
+  // for INITIATE_GRAPPLE / BREAK_FREE paths.
+  const synthRobot = {
+    robotId: TEST_ROBOT_ID,
+    robotName: "TestBot",
+    name: "TestBot",
+    side: "P1",
+    silhouette: 3,
+    frameStrength: 2,
+    frameDurability: 4,
+    frameMaterial: 2,
+    components: [
+      {
+        componentId: TEST_CID,
+        tempId: TEST_CID,
+        parentComponentId: null,
+        name: "Cockpit",
+        definition: "cockpit",
+        facing: "FRONT",
+        isFrame: true,
+        hpMax: 10, hpCurrent: 10,
+        isDestroyed: false,
+        modules: [{ moduleId: "standard_cockpit", toggledOn: true, aiPilotId: null }],
+        equipment: [
+          {
+            equipmentId: 1,
+            socketModuleId: null,
+            name: "Test Rifle",
+            keywords: ["Ranged"],
+            silhouette: 1,
+            damage: 3, range: 10,
+            armorMax: 5, armorCurrent: 5,
+            isDrawn: true, isDropped: false,
+            mountPoint: false,
+            damageType: "Physical",
+          },
+        ],
+      },
+      {
+        componentId: "test-arm",
+        tempId: "test-arm",
+        parentComponentId: null,
+        name: "Arm",
+        definition: "arm",
+        facing: "FRONT",
+        isFrame: true,
+        hpMax: 8, hpCurrent: 8,
+        isDestroyed: false,
+        modules: [{ moduleId: "manipulator", toggledOn: true, aiPilotId: null }],
+        equipment: [
+          {
+            equipmentId: 2,
+            socketModuleId: null,
+            name: "Test Sword",
+            keywords: ["Melee"],
+            silhouette: 1,
+            damage: 4, range: 0,
+            armorMax: 5, armorCurrent: 5,
+            isDrawn: true, isDropped: false,
+            mountPoint: false,
+            damageType: "Physical",
+          },
+        ],
+      },
+    ],
+    fuelMax: 10, fuelCurrent: 10,
+    shieldsMax: 20, shieldsCurrent: 20,
+    systemStrain: 0, systemStrainThreshold: 5,
+    capacitorsRemaining: 3, capacitorsMax: 3,
+    pilotTokens: 0, pilotMental: 4,
+    statusEffects: ["STANDING"],
+    boostPower: 4, robotWeight: 5,
+    groundSpeed: 6, maxLoad: 10,
+    altitude: 0, inertia: 0,
+    cockpitPilots: [{
+      componentId: TEST_CID, moduleIndex: 0, slotIndex: 0,
+      slotName: "Pilot", pilotId: TEST_PILOT_ID,
+      isAi: false, pilotStrain: 0,
+      pilotHpMax: 6, pilotHpDamage: 0,
+      tokens: 0,
+    }],
+    actionBudget: { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 },
+    gspdSpent: 0, freeToggleIncidentals: 0, facingDegrees: 0,
+  };
+
+  const synthBattle = {
+    id: 999999,
+    round: 1, priority: "P1",
+    p1ForceName: "TestForce", p1ForceId: null,
+    p2ForceName: "Opponent", p2ForceId: null,
+    p1Robots: [synthRobot],
+    p2Robots: [],
+    undoStack: [],
+    passedThisRound: { P1: false, P2: false },
+  };
+
+  state.activeBattle = synthBattle;
+  state.pilots = [...(origPilots || []), synthPilot];
+
+  // ── Error capture ──
+  const caughtAsyncErrors = [];
+  window.onerror = function (msg, src, ln, col, err) {
+    caughtAsyncErrors.push({ msg: String(msg), stack: err && err.stack });
+    return true; // swallow
+  };
+  window.onunhandledrejection = function (ev) {
+    caughtAsyncErrors.push({ msg: String(ev.reason), stack: ev.reason && ev.reason.stack });
+  };
+
+  // ── Helper: run one (key, pickedPilot) tuple ──
+  // resolve-action reads `_pickedPilot` via the closure variable set by
+  // handlers["pick-pilot"]. The function-level `_pickedPilot` is NOT
+  // accessible from here, so we route through handlers["pick-pilot"]
+  // (which sets it for us). pickerOrManual: "PICKER" → synthPilotKey,
+  // "MANUAL" → "MANUAL" sentinel, "NONE" → leave null.
+  //
+  // The handler is wrapped by withRapidClickGuard at startup; we use
+  // handlers._unguarded["resolve-action"] to bypass the 250ms debounce
+  // so 64 calls in a row don't drop. Mirrors the redirect-confirm →
+  // resolve-action re-entry pattern at index.html:9935.
+  const resolveFn = (handlers._unguarded && handlers._unguarded["resolve-action"])
+    || handlers["resolve-action"];
+
+  function tryAction(k, pickerOrManual) {
+    caughtAsyncErrors.length = 0;
+    // Reset robot state per call so an earlier mutation (Strain,
+    // statusEffects, fuel) doesn't poison the next call.
+    synthRobot.systemStrain = 0;
+    synthRobot.pilotTokens = 0;
+    synthRobot.fuelCurrent = 10;
+    synthRobot.shieldsCurrent = synthRobot.shieldsMax;
+    synthRobot.capacitorsRemaining = synthRobot.capacitorsMax;
+    synthRobot.statusEffects = ["STANDING"];
+    synthRobot.altitude = 0; synthRobot.inertia = 0;
+    synthRobot.gspdSpent = 0;
+    synthRobot.actionBudget = { primaryUsed: 0, reactionsUsed: 0, incidentalsUsed: 0 };
+    synthRobot.cockpitPilots[0].pilotStrain = 0;
+    synthRobot.cockpitPilots[0].pilotHpDamage = 0;
+    synthRobot.cockpitPilots[0].tokens = 0;
+    synthRobot.cockpitPilots[0].isKO = false;
+    synthRobot.cockpitPilots[0]._justTookReaction = false;
+    delete synthRobot.salvoTokens;
+    delete synthRobot.pendingParryReductions;
+    delete synthRobot.grappledById;
+    delete synthRobot.grapplingId;
+    delete synthRobot.shutdownPending;
+    state.activePriorityRobotId = null;
+    state.skipRedirectCheck = false;
+
+    // Set _pickedPilot via the pick-pilot handler.
+    if (pickerOrManual === "PICKER") {
+      try { handlers["pick-pilot"]({ pilot: synthPilotKey }); } catch (e) {}
+    } else if (pickerOrManual === "MANUAL") {
+      try { handlers["pick-pilot"]({ pilot: "MANUAL" }); } catch (e) {}
+    }
+    // NONE → leave _pickedPilot as whatever it was (the handler resets
+    // it to null on every completion, so it'll be null here).
+
+    // Set the modal data the handler reads (targetIds, distance,
+    // decelPts, rotateBy, hDist/vDist for BOOST). Provide sensible
+    // defaults so action-specific code paths exercise.
+    state.modal = {
+      kind: "action-resolve",
+      data: {
+        rid: TEST_ROBOT_ID,
+        id: TEST_ROBOT_ID,
+        k: k,
+        targetIds: [],            // no other robots in the synth battle
+        distance: 1,              // MOVE / CHARGE / STRAFE / QUICK_MOVE
+        decelPts: 1,              // DECELERATE
+        rotateBy: 45,             // PIVOT
+        hDist: 1, vDist: 0,       // BOOST
+        targetCount: 1,           // SALVO Mental check
+        linkedWeaponSelections: {},
+        salvoStandaloneSelections: {},
+        meleeStandaloneSelections: {},
+      },
+    };
+
+    let syncError = null;
+    try {
+      resolveFn({ id: TEST_ROBOT_ID, rid: TEST_ROBOT_ID, k: k });
+    } catch (e) {
+      syncError = { msg: String(e && e.message || e), stack: e && e.stack };
+    }
+    const asyncCopy = caughtAsyncErrors.slice();
+    const allErrors = [];
+    if (syncError) allErrors.push(syncError);
+    allErrors.push(...asyncCopy);
+    return { ok: allErrors.length === 0, error: allErrors[0] || null, errors: allErrors };
+  }
+
+  // ── Iterate every action ──
+  const results = { passed: [], failed: [], skipped: [] };
+  try {
+    for (const k of Object.keys(ACTIONS)) {
+      const pickerResult = tryAction(k, "PICKER");
+      const manualResult = tryAction(k, "MANUAL");
+      if (pickerResult.ok && manualResult.ok) {
+        results.passed.push(k);
+      } else {
+        results.failed.push({
+          key: k,
+          pickerError: pickerResult.error,
+          manualError: manualResult.error,
+        });
+      }
+    }
+  } finally {
+    // ── Restore state (must run even on test-time crash) ──
+    state.activeBattle = origBattle;
+    state.modal = origModal;
+    state.pilots = origPilots;
+    state.activePriorityRobotId = origActivePriority;
+    state.skipRedirectCheck = origSkipRedirect;
+    window.onerror = origOnerror;
+    window.onunhandledrejection = origOnRej;
+    // eslint-disable-next-line no-global-assign
+    if (origDbPut) dbPut = origDbPut;
+    try { render(); } catch (e) { /* swallow — restoration best-effort */ }
+  }
+
+  // ── Report ──
+  const summary = {
+    total: Object.keys(ACTIONS).length,
+    passed: results.passed.length,
+    failed: results.failed.length,
+  };
+  console.table(summary);
+  if (results.failed.length > 0) {
+    console.group("⚠ __actionSmoke failures");
+    for (const f of results.failed) {
+      console.error(
+        `${f.key}: picker=${f.pickerError?.msg || "ok"}, manual=${f.manualError?.msg || "ok"}`,
+      );
+      if (f.pickerError?.stack) console.error(f.pickerError.stack);
+      if (f.manualError?.stack) console.error(f.manualError.stack);
+    }
+    console.groupEnd();
+  } else {
+    console.info(`✓ __actionSmoke: ${summary.passed}/${summary.total} actions clean (picker + manual paths).`);
+  }
+  return results;
 };
 </script>
 </body>
